@@ -132,3 +132,29 @@ while a round-tripped one came back sorted — two objects for the same job that
 That is precisely the NFR-02 byte-identity hazard the sorting was introduced to prevent, and it
 would have been invisible until a golden test failed in Phase 1. Fixed with `validate_default=True`
 on both `models` and `levels`.
+
+---
+
+## 7. Gate G0 — signed off
+
+| G0 clause | Status |
+|---|---|
+| CI green | ✅ lint, format, `mypy --strict` on `schemas/`, 127 tests, 100% coverage on `schemas/` |
+| `import statsforecast, mlforecast, utilsforecast` succeeds in the container | ✅ built on `python:3.11-slim-bookworm`, reported `G0 import gate OK - 2.1.1 1.1.0 0.2.16` |
+| Schemas round-trip through JSON without loss | ✅ property test over all 24 contracts, including `None` metrics and integer-keyed coverage dicts |
+| AutoARIMA spike recorded, FR-216 frozen against it | ✅ §2 above |
+
+**Docker was not installed on the development machine.** It requires root, and `sudo` needs a
+password that cannot be supplied non-interactively; rootless Docker is also unavailable, because
+`newuidmap`/`newgidmap` are absent and installing them likewise needs root. The container clause
+was therefore verified in **CI**, on a clean GitHub runner — which is the stronger test anyway,
+since it has none of this machine's accumulated state. To build locally:
+`sudo apt install docker.io && sudo usermod -aG docker $USER` (then re-login).
+
+**A third instance of the same mistake, worth naming.** The G0 gate baked into the Dockerfile
+asserted `find_spec('numba') is None` and failed the build — the image installs `--all-extras`,
+so shap legitimately brings numba with it. That is the same error as the pytest guard in §6 and
+the retired risk-register entry in §1: **asserting the absence of a package rather than the
+absence of a declared dependency**. Presence depends on which extras are installed and answers a
+different question each time; only metadata answers the question ADR-003 actually asks. All three
+now assert against metadata.

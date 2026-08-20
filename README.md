@@ -1,5 +1,7 @@
 # xlforecast
 
+[![CI](https://github.com/marcozanotti/xlforecast/actions/workflows/ci.yml/badge.svg)](https://github.com/marcozanotti/xlforecast/actions/workflows/ci.yml)
+
 Reproducible time series model-competition engine with an Excel add-in front end.
 
 The engine is the product; the add-in is a distribution channel. What differentiates it is
@@ -11,7 +13,14 @@ Specifications live in [`docs/`](docs/). Read `00-PROJECT-BRIEF.md` first, then 
 
 ## Status
 
-Phase 0 (scaffolding) — see `docs/03-BUILD-PLAN.md`.
+**Phase 0 complete — gate G0 passed.** CI green (lint, strict types, 127 tests, 100% coverage
+on `schemas/`), the Nixtla stack imports cleanly in the container, and every contract in
+Technical Spec §4 round-trips through JSON without loss.
+
+Measured cost per model is recorded in `docs/05-PHASE0-SPIKE.md`; FR-216 (13-model default set)
+and NFR-01 are frozen against it at 2.9 min projected against a 10-minute budget.
+
+Next: Phase 1 — `ingest/` and `engine/folds.py`. See `docs/03-BUILD-PLAN.md`.
 
 ## Development
 

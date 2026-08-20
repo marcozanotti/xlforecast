@@ -48,10 +48,22 @@ ENV OMP_NUM_THREADS=1 \
 
 USER xlf
 
-# Gate G0: the stack must import cleanly in the container.
-RUN python -c "import statsforecast, mlforecast, utilsforecast, lightgbm, xgboost; \
-    import importlib.util as u; \
-    assert u.find_spec('numba') is None, 'numba is back in the tree -- check statsforecast pin'; \
-    print('G0 import gate OK')"
+# Gate G0: the stack must import cleanly in the container, and the engine must declare no
+# hard dependency on numba (ADR-003).
+#
+# Asserted against package METADATA, not `find_spec`. This image installs --all-extras, so
+# numba IS present -- shap requires it -- and an earlier version of this check asserted its
+# absence and failed the build. Presence is environment-dependent and answers the wrong
+# question; what ADR-003 actually claims is that the *engine* does not need numba, which is
+# a property of the dependency declarations.
+RUN python -c "\
+import statsforecast, mlforecast, utilsforecast, lightgbm, xgboost; \
+from importlib.metadata import requires; \
+bad = {p: [r for r in (requires(p) or []) if 'extra ==' not in r \
+           and r.split()[0].lower() in ('numba', 'llvmlite')] \
+       for p in ('statsforecast', 'mlforecast', 'utilsforecast', 'fugue', 'triad')}; \
+bad = {k: v for k, v in bad.items() if v}; \
+assert not bad, f'engine now hard-depends on numba/llvmlite: {bad}'; \
+print('G0 import gate OK -', statsforecast.__version__, mlforecast.__version__, utilsforecast.__version__)"
 
 CMD ["python", "-c", "import xlforecast; print(xlforecast.__version__)"]

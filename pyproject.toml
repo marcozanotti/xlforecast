@@ -1,0 +1,136 @@
+[project]
+name = "xlforecast"
+version = "0.1.0"
+description = "Reproducible time series model-competition engine with an Excel add-in front end"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+license = { text = "Proprietary" }
+authors = [{ name = "Marco Zanotti" }]
+
+dependencies = [
+    # Contracts — the spine of the system (TS §4)
+    "pydantic>=2.13,<3",
+    # Ingest / reshape (Polars), pandas only at the Nixtla boundary (CLAUDE.md conventions)
+    "polars>=1.30",
+    "pyarrow>=18",
+    "pandas>=2.2,<3",
+    "numpy>=1.26",
+    # Engine. statsforecast>=2.0 is a HARD FLOOR, not a preference: 2.0 dropped numba in
+    # favour of compiled coreforecast. Pinning below it reintroduces the llvmlite build
+    # friction that ADR-003 and the Phase 0 risk register used to warn about. See docs/05.
+    "statsforecast>=2.0,<3",
+    "mlforecast>=1.0,<2",
+    "utilsforecast>=0.2.9,<0.3",
+    "lightgbm>=4.5",
+    "xgboost>=2.1",
+    "scikit-learn>=1.5",
+    # CLI + logging
+    "typer>=0.15",
+    "structlog>=24.4",
+]
+
+[project.optional-dependencies]
+api = ["fastapi>=0.115", "uvicorn[standard]>=0.32", "arq>=0.26", "redis>=5.2"]
+explain = [
+    "shap>=0.46",
+    "holidays>=0.60",
+    # shap declares `numba` and `llvmlite` with NO lower bound on non-macOS platforms, so a
+    # resolver will happily backtrack to llvmlite 0.36 -- which predates cp311 wheels and
+    # then tries to build LLVM from source, on Python 3.11, and fails.
+    #
+    # This is the numba/llvmlite friction the Phase 0 risk register warned about. It is real.
+    # It just does not come from statsforecast (2.0 dropped numba for compiled coreforecast):
+    # it comes from the explain layer. These floors are the mitigation.
+    "llvmlite>=0.43",
+    "numba>=0.60",
+]
+
+[project.scripts]
+xlforecast = "xlforecast.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "hypothesis>=6.120",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "pandas-stubs>=2.2",
+    "pre-commit>=4.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/xlforecast"]
+
+# ---------------------------------------------------------------- ruff
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "PT", "SIM", "RUF", "ANN", "BLE"]
+ignore = [
+    "ANN401",  # allow Any in narrow, documented places
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN"]        # test signatures need no annotations
+
+[tool.ruff.lint.flake8-bugbear]
+# Pydantic Field(...) in defaults is idiomatic, not a mutable-default bug
+extend-immutable-calls = ["pydantic.Field", "typer.Option", "typer.Argument"]
+
+# ---------------------------------------------------------------- mypy
+[tool.mypy]
+python_version = "3.11"
+plugins = ["pydantic.mypy"]
+# Without the pydantic plugin above, --strict fails on generated __init__s (NFR-11).
+# Deliberately false. The overrides below forward-declare `xlforecast.engine.*` as strict,
+# because NFR-11 requires it and Phase 1 must not have to remember to add it. Until those
+# modules exist the override is "unused", and warning about it would be noise that trains
+# people to ignore mypy output.
+warn_unused_configs = false
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_reexport = true
+
+# NFR-11: strict on engine/ and schemas/ specifically.
+[[tool.mypy.overrides]]
+module = ["xlforecast.schemas.*", "xlforecast.engine.*", "xlforecast.errors"]
+strict = true
+
+[[tool.mypy.overrides]]
+module = ["statsforecast.*", "mlforecast.*", "utilsforecast.*", "lightgbm.*", "xgboost.*", "shap.*"]
+ignore_missing_imports = true
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+# ---------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+markers = [
+    "slow: excluded from the fast loop (uv run pytest tests/unit -x)",
+    "container: requires the Docker image",
+]
+
+# ---------------------------------------------------------------- coverage
+[tool.coverage.run]
+source = ["src/xlforecast"]
+branch = true
+
+[tool.coverage.report]
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError", "@overload"]
+
+[tool.coverage.paths]
+source = ["src/xlforecast", "*/site-packages/xlforecast"]

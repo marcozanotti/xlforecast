@@ -1,0 +1,23 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 5
+
+  api:
+    build: { context: ., target: runtime }
+    command: uvicorn xlforecast.api.main:app --host 0.0.0.0 --port 8000
+    ports: ["8000:8000"]
+    environment: { REDIS_URL: "redis://redis:6379" }
+    depends_on:
+      redis: { condition: service_healthy }
+
+  worker:
+    build: { context: ., target: runtime }
+    command: arq xlforecast.worker.tasks.WorkerSettings
+    environment: { REDIS_URL: "redis://redis:6379" }
+    depends_on:
+      redis: { condition: service_healthy }

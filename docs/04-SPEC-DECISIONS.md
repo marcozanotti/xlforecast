@@ -196,3 +196,33 @@ would have passed against a broken implementation.
 - **ADR-002** is provisional pending the Phase 5 spike.
 - **Image size** vs Phase 4 cold start is unmeasured; `fugue` is a mandatory transitive dependency of
   statsforecast and is not small.
+
+---
+
+## 7. Found during Phase 1 implementation
+
+**FR-201c — `AutoETS` is silently non-seasonal above `m=24`.** `statsforecast/ets.py` allocates a
+fixed 24-slot seasonal state buffer (`s = np.zeros(24)`) and returns early on
+`if m > 24 and season != Component.Nothing`. So `AutoETS(season_length=52)` produces forecasts
+*numerically identical* to `AutoETS(season_length=1)` — verified — while appearing in the
+leaderboard as a seasonal model that simply performed poorly.
+
+That is the exact failure mode this project exists to prevent: not a wrong number, but a number
+whose provenance is invisible. A user comparing AutoETS against SeasonalNaive on weekly data would
+conclude ETS is unsuited to their series, when in fact it was never given the chance to model the
+seasonality they asked it to model.
+
+Resolved the same way FR-201a resolves the equivalent AutoARIMA problem: above the threshold,
+route through `MSTL` with an ETS trend forecaster, alias it back to `AutoETS`, and record
+`ets_mode` in the manifest so the substitution is auditable rather than hidden. Measured on a
+weekly seasonal panel: MASE **1.123 → 0.765**.
+
+Worth noting for Phase 3: this was invisible to unit tests and only surfaced when a full
+leaderboard was run on seasonal data and AutoETS placed implausibly low. Benchmark validation is
+supposed to catch exactly this class of defect, which is an argument for running the M5/VN1
+harness earlier rather than treating G3 as a formality.
+
+**Related, and still open:** the Build Plan's statistical-correctness test says "Pure seasonal →
+AutoETS/SeasonalNaive should win". With FR-201c that now holds. Without it, it would have failed —
+another instance of a specified test that would have failed against a correct engine, alongside
+AC-406.

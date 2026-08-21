@@ -103,10 +103,13 @@ class TestFixtureRoundTrips:
     def test_manifest(self, manifest):
         assert_round_trips(manifest)
 
-    def test_full_run_result(self, manifest, empty_pack, empty_timing, empty_leaderboard):
+    def test_full_run_result(
+        self, manifest, empty_pack, empty_timing, empty_leaderboard, empty_profile
+    ):
         assert_round_trips(
             RunResult(
                 job_id="job-1",
+                profile=empty_profile,
                 leaderboard=empty_leaderboard,
                 forecast=ForecastFrame(levels=[80, 95]),
                 timing=empty_timing,

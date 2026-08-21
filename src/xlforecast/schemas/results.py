@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from xlforecast.schemas.artifacts import ArtifactPack
 from xlforecast.schemas.enums import ExclusionReason, Family, InformationSet, Quantity, Scope
+from xlforecast.schemas.profile import DataProfile
 from xlforecast.schemas.request import DataMapping, ResolvedRequest
 
 __all__ = [
@@ -77,7 +78,12 @@ class LeaderboardRow(BaseModel):
     n_series_scored: int = Field(ge=0)  #: FR-209
     n_series_common: int = Field(ge=0)  #: FR-215
     rank: int = Field(ge=1)
+    #: Against SeasonalNaive, the mandated baseline (FR-204). Negative is better.
     vs_baseline_pct: float | None = None
+    #: Against WindowAverage at the seasonal frequency -- the *incumbent* method persona P1
+    #: forecasts with today (FR-201b). Beating SeasonalNaive is table stakes; beating the
+    #: incumbent is the commercial claim, and one field cannot carry both comparisons.
+    vs_incumbent_pct: float | None = None
     selected: bool = False
     #: FR-408. An argmin over models on the folds it is then scored on is optimistically
     #: biased; the naive figure must never be read as an unbiased estimate.
@@ -203,6 +209,7 @@ class Manifest(BaseModel):
     cutoffs: list[str] = Field(default_factory=list)  #: panel-wide calendar dates
     excluded_series: dict[str, ExclusionReason] = Field(default_factory=dict)
     autoarima_mode: Literal["seasonal", "fourier"]  #: FR-201a changes the fitted model
+    ets_mode: Literal["seasonal", "mstl"]  #: FR-201c likewise -- see ForecastRequest.ets_mode
     crps_quantiles: list[float] = Field(default_factory=list)  #: FR-208 -- grid-dependent
     ensemble_params: dict[str, float | int | str] = Field(default_factory=dict)
     prompt_versions: dict[str, str] = Field(default_factory=dict)  #: TS §9.5 required this
@@ -222,6 +229,11 @@ class RunResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     job_id: str
+    #: Carried through because XLF_Diagnostics block 4 (series flags) is built from it, and
+    #: so is ArtifactPack.series_flags in Phase 6. Also the record of which series were
+    #: excluded and why -- dropping a series without telling the user is a listed failure
+    #: mode (FS §6), so the reasons must survive to the output layer.
+    profile: DataProfile
     leaderboard: Leaderboard
     forecast: ForecastFrame
     fold_scores: list[FoldScore] = Field(default_factory=list)

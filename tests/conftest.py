@@ -5,11 +5,13 @@ import pytest
 from xlforecast.schemas import (
     ArtifactPack,
     DataMapping,
+    DataProfile,
     ForecastRequest,
     Leaderboard,
     Manifest,
     ResolvedRequest,
     RunTiming,
+    ValidationReport,
 )
 
 
@@ -40,6 +42,7 @@ def manifest(resolved_weekly: ResolvedRequest, mapping: DataMapping) -> Manifest
         data_fingerprint="0" * 64,
         cutoffs=["2023-10-01T00:00:00Z", "2023-12-31T00:00:00Z", "2024-03-31T00:00:00Z"],
         autoarima_mode="fourier",
+        ets_mode="mstl",
         crps_quantiles=[0.025, 0.1, 0.5, 0.9, 0.975],
         thread_config={"OMP_NUM_THREADS": "1"},
         started_at="2026-08-20T10:00:00Z",
@@ -61,3 +64,20 @@ def empty_pack() -> ArtifactPack:
 @pytest.fixture
 def empty_leaderboard() -> Leaderboard:
     return Leaderboard()
+
+
+@pytest.fixture
+def empty_profile() -> DataProfile:
+    return DataProfile(
+        data_id="data-1",
+        n_series=0,
+        n_rows=0,
+        freq_inferred="W-SUN",
+        freq_confidence=1.0,
+        ds_min="2021-01-03T00:00:00",
+        ds_max="2024-01-07T00:00:00",
+        ragged=False,
+        intermittent_share=0.0,
+        pct_missing_overall=0.0,
+        validation=ValidationReport(n_series_in=0, n_series_out=0),
+    )

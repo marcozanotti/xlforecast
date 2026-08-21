@@ -170,6 +170,17 @@ class ForecastRequest(BaseModel):
         """FR-201a. Fourier above m=24: 3.1x cheaper and better practice at long periods."""
         return "fourier" if season_length > 24 else "seasonal"
 
+    def ets_mode(self, season_length: int) -> Literal["seasonal", "mstl"]:
+        """FR-201c. MSTL above m=24, because seasonal ETS cannot represent the period.
+
+        `statsforecast/ets.py` allocates a fixed 24-slot seasonal state buffer and returns
+        early when `m > 24`, so `AutoETS(season_length=52)` is silently non-seasonal --
+        measured to produce forecasts identical to `AutoETS(season_length=1)`. A model that
+        quietly ignores the seasonality it was asked to fit, and then scores badly for it,
+        is exactly the kind of misleading leaderboard row this project exists to prevent.
+        """
+        return "mstl" if season_length > 24 else "seasonal"
+
 
 class ResolvedRequest(ForecastRequest):
     """A `ForecastRequest` with every inferable field filled (TS §4.2).
@@ -184,6 +195,7 @@ class ResolvedRequest(ForecastRequest):
     season_length: int = Field(ge=1)
     step_size: int = Field(ge=1)
     autoarima: Literal["seasonal", "fourier"]
+    ets: Literal["seasonal", "mstl"]
 
     @model_validator(mode="after")
     def _fourier_threshold_respected(self) -> ResolvedRequest:
@@ -192,6 +204,12 @@ class ResolvedRequest(ForecastRequest):
             raise ValueError(
                 f"autoarima={self.autoarima!r} contradicts FR-201a at "
                 f"season_length={self.season_length} (expected {expected!r})"
+            )
+        expected_ets = "mstl" if self.season_length > 24 else "seasonal"
+        if self.ets != expected_ets:
+            raise ValueError(
+                f"ets={self.ets!r} contradicts FR-201c at "
+                f"season_length={self.season_length} (expected {expected_ets!r})"
             )
         return self
 
@@ -203,6 +221,7 @@ class ResolvedRequest(ForecastRequest):
             season_length=season_length,
             step_size=request.effective_step_size,
             autoarima=request.autoarima_mode(season_length),
+            ets=request.ets_mode(season_length),
         )
 
     def expected_output_rows(self, n_series: int) -> int:

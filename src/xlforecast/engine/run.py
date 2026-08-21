@@ -62,6 +62,7 @@ from xlforecast.schemas.results import (
     RunResult,
     RunTiming,
 )
+from xlforecast.worker.checkpoint import RunControl
 
 __all__ = ["THREAD_KEYS", "run_from_frame", "run_from_path"]
 
@@ -141,8 +142,15 @@ def run_from_frame(
     mapping: DataMapping,
     job_id: str | None = None,
     n_jobs: int = 1,
+    control: RunControl | None = None,
 ) -> RunResult:
-    """Run one competition. Every number in the result comes from forecasting code."""
+    """Run one competition. Every number in the result comes from forecasting code.
+
+    `control` is optional and the CLI passes none: the engine runs standalone exactly as
+    before (ADR-001). The service supplies it to make the run resumable (FR-801),
+    cancellable (FR-802) and observable per model per fold.
+    """
+    control = control or RunControl()
     job_id = job_id or str(uuid.uuid4())
     data_id = job_id
     started = datetime.now(UTC).isoformat()
@@ -224,6 +232,28 @@ def run_from_frame(
     ensemble_weights: dict[int | None, dict[str, float]] = {}
     ensemble_fallbacks: set[str] = set()
     for fold in folds:
+        # FR-801: a fold already checkpointed by a previous attempt is not recomputed.
+        # Redelivery after a worker dies resumes rather than restarts.
+        cached = (
+            control.checkpointer.load(fold.index)
+            if (control.checkpointer and control.resume)
+            else None
+        )
+        if cached is not None:
+            cached_scores, cached_preds = cached
+            fold_scores.extend(cached_scores)
+            fold_predictions[fold.index] = cached_preds
+            control.resumed_folds.add(fold.index)
+            control.report(
+                fold_index=fold.index, models_done=len(scored_models), current_model=None
+            )
+            continue
+
+        # FR-802: a clean stop between folds, retaining everything completed. A fold in
+        # flight is the worker's problem -- polling cannot interrupt a running AutoARIMA fit.
+        if control.stop_requested():
+            break
+
         frames = []
         if local_names:
             preds, t_local = local_family.forecast_fold(
@@ -265,10 +295,14 @@ def run_from_frame(
 
         fold_predictions[fold.index] = combined
         with measure() as t:
-            fold_scores.extend(
-                score_fold(fold, combined, models=scored_models, season_length=season_length)
-            )
+            scored = score_fold(fold, combined, models=scored_models, season_length=season_length)
+            fold_scores.extend(scored)
+            if control.checkpointer is not None:
+                # Durable the moment the fold finishes, which is also what lets S4 show a
+                # partial leaderboard built from completed folds only.
+                control.checkpointer.save(fold.index, scored, combined)
         overhead.add("evaluate", t.cpu)
+        control.report(fold_index=fold.index, models_done=len(scored_models), current_model=None)
 
     # Conformal calibration precedes the leaderboard, because probabilistic scoring is an
     # input to it (FR-208) rather than an annotation on it.

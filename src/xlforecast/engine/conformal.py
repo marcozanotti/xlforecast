@@ -242,6 +242,10 @@ def apply_bands(
         for row in out.group_by(ID)
         .agg((pl.col("lo") > pl.col("_raw_lo")).mean().alias("rate"))
         .iter_rows(named=True)
+        # A series with no rows in this frame aggregates to a null mean. That happens
+        # whenever a run is cancelled or resumed with only some folds present, so it is a
+        # normal state rather than an impossible one.
+        if row["rate"] is not None
     }
     return out.drop(["_raw_lo", "support_lo"]), clip_rates
 

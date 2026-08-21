@@ -62,27 +62,33 @@ These are settled. Do not relitigate them during implementation; raise an issue 
 The full competition runs as a Python package with a CLI, validated on the M3 competition data
 before any add-in code exists. If the add-in turns out to be the wrong channel, the engine survives.
 
-**ADR-002 — Excel integration via xlwings Server (Office.js), provisional pending a Phase 5 spike.**
-Lets us write the add-in's Office.js orchestration in Python instead of JavaScript. Requires an
-xlwings PRO developer licence.
+**ADR-002 — Excel integration via native Office.js. RESOLVED 2026-08-21: no xlwings PRO.**
 
-Two rationales originally given here were wrong and have been removed: *"Python source stays
-server-side"* is delivered by the FastAPI architecture regardless — the engine is behind an HTTP
-API either way, so no meaningful Python is client-side under either choice; and *"works on
-Windows, macOS and Excel on the web"* is a property of Office.js, not of xlwings. The real and
-only benefit is (a) writing the add-in layer in Python.
+The owner will not buy a licence, which settles it: xlwings Server requires a paid PRO
+developer licence, so it is out and the Phase 5 spike is unnecessary. The add-in talks to
+Office.js directly.
 
-The cost is non-obvious: xlwings Server routes **every** range operation through our server, so
-the chunked read in TS §7.1 is N HTTPS round trips carrying spreadsheet data, not N local
-`context.sync()` calls. That works against the throughput constraint in §5 and puts grid I/O on
-our infrastructure bill.
+This costs less than it might appear, because the evidence had already eroded the case for
+xlwings — see the struck-through rationale below. The Office.js surface we need is small and
+bounded: a chunked range reader, five batched sheet writers, a custom-properties accessor and
+a selection handler. That is a few hundred lines of JavaScript against a stable, free,
+exhaustively documented API, and the task pane is already HTML + Alpine.js + Bootstrap, so we
+were writing browser JS either way.
 
-**Provisional.** Phase 5 opens with a spike measuring wall-clock for a 250,000-cell read through
-xlwings Server versus native Office.js, before any sheet writer is written. If xlwings is more
-than ~2× slower, we drop the licence and write the Office.js surface directly — it is a bounded
-surface (chunked reader, five batched writers, custom-properties accessor, selection handler)
-against a stable, free, exhaustively documented API, and the task pane is already HTML +
-Alpine.js + Bootstrap, so we are writing browser JS in either case.
+~~Two of the three rationales originally given for xlwings were already wrong.~~ *"Python
+source stays server-side"* is delivered by the FastAPI architecture regardless — the engine is
+behind an HTTP API either way, so no meaningful Python is client-side under either choice. And
+*"works on Windows, macOS and Excel on the web"* is a property of Office.js, not of xlwings.
+That left one real benefit — writing the add-in layer in Python — against a paid licence, a
+small vendor on the critical path of our only distribution channel, and a cost that is not
+obvious: xlwings Server routes **every** range operation through our server, so the chunked
+read in TS §7.1 would have been N HTTPS round trips carrying spreadsheet data rather than N
+local `context.sync()` calls. That works against the throughput constraint in §5 and puts grid
+I/O on our infrastructure bill.
+
+The cost decision and the technical evidence point the same way, which is a comfortable place
+to end up. Native Office.js also removes the cross-host debugging indirection that gate G5
+exists to exercise — we now debug Office.js directly rather than at one remove.
 
 **ADR-003 — No client-side Python (Pyodide/WASM).**
 The engine ships platform-specific compiled extensions with no Emscripten/Pyodide wheels:
@@ -177,7 +183,7 @@ Maintain this table in the repo. Any model added to the registry must have a row
 | TiRex-2 | NXAI | Apache-2.0 | Yes | v2 candidate |
 | TiRex (v1) | NXAI | NXAI Community Licence | **Requires review** | Blocked pending legal check |
 | Moirai 1.0-R | Salesforce | CC-BY-NC-4.0 | **No** | **Prohibited** |
-| TimeGPT | Nixtla | Commercial API | Yes, paid | v2 candidate (API only, no weights) |
+| TimeGPT | Nixtla | Commercial API | Yes, **paid** | **Excluded.** The project buys no licences (2026-08-21), which rules out paid model APIs on the same grounds as xlwings PRO |
 
 ---
 

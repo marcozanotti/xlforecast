@@ -19,6 +19,7 @@ import json
 import secrets
 import time
 from dataclasses import dataclass, field
+from typing import Any
 
 from xlforecast.errors import XLForecastError
 from xlforecast.schemas.request import ForecastRequest
@@ -62,6 +63,11 @@ class TokenService:
 
     secret: bytes
     ttl_seconds: int = TOKEN_TTL_SECONDS
+    #: Shared single-use enforcement. `None` falls back to the in-process set below, which is
+    #: correct for one API instance and quietly wrong for several: two instances behind a load
+    #: balancer would each accept the same token once, so one confirmation could enqueue two
+    #: jobs. `RedisReplayStore` is supplied in any deployment with more than one instance.
+    replay: Any | None = None
     _spent: set[str] = field(default_factory=set)
 
     def _sign(self, digest: str, expires_at: int, nonce: str) -> str:
@@ -113,12 +119,20 @@ class TokenService:
                 "this configuration is not the one that was confirmed.",
                 fix="Review the changed settings and confirm again.",
             )
-        if signature in self._spent:
+        if not self._claim(signature):
             raise ConfirmationError(
                 "this confirmation has already been used.",
                 fix="Confirm again to run the same job a second time.",
             )
+
+    def _claim(self, signature: str) -> bool:
+        """True if this caller is the first to redeem `signature`."""
+        if self.replay is not None:
+            return bool(self.replay.claim(signature))
+        if signature in self._spent:
+            return False
         self._spent.add(signature)
+        return True
 
 
 @dataclass(frozen=True, slots=True)

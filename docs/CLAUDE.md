@@ -18,6 +18,7 @@ Full specifications live in `docs/`:
 - `05-PHASE0-SPIKE.md` — measured cost per model; FR-216/NFR-01 are frozen against it
 - `06-METHODOLOGY.md` — the public methodology page. If a change makes this harder to write
   honestly, that is the signal to stop and reconsider the change
+- `07-DEPLOYMENT.md` — topology, configuration and the constraints that bite late
 
 ---
 

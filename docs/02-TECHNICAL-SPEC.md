@@ -9,7 +9,7 @@ ADRs in `00-PROJECT-BRIEF.md` and must not be changed without updating that docu
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│ Excel  ·  task pane (Office.js webview via xlwings)      │
+│ Excel  ·  task pane (Office.js webview, native)          │
 │  range read/write · chunked · batched context.sync()     │
 └───────────────┬──────────────────────────────────────────┘
                 │ HTTPS / JSON + Arrow IPC
@@ -57,8 +57,8 @@ only derived profiles and artifact packs. This is what makes the enterprise stor
 | Features / attribution | `shap` (TreeExplainer) | LightGBM path only |
 | Calendars | `holidays` | |
 | Storage format | Parquet (pyarrow) | |
-| Excel add-in | xlwings PRO (Server) | **[FIXED]** ADR-002 |
-| Task pane UI | HTML + Alpine.js + Bootstrap | Minimal JS; xlwings renders the bridge |
+| Excel add-in | **Native Office.js** (TypeScript/JS) | **[FIXED]** ADR-002, resolved 2026-08-21: no paid licences, so xlwings PRO is out |
+| Task pane UI | HTML + Alpine.js + Bootstrap | The pane calls the API directly and drives Office.js itself; there is no Python bridge |
 | LLM client | `pydantic-ai` or raw provider SDK behind an interface | Must support tool use + structured output |
 | CLI | Typer | |
 | Testing | pytest, pytest-asyncio, hypothesis | |
@@ -125,11 +125,11 @@ xlforecast/
 │   │   └── progress.py         # granular progress reporting
 │   ├── storage/                # object store + Redis abstractions
 │   └── cli.py
-├── addin/                      # xlwings Server app
+├── addin/                      # Office.js add-in (TypeScript)
 │   ├── app/
-│   │   ├── main.py             # xlwings script entry points
-│   │   ├── sheets.py           # sheet writers (FR-701..704)
-│   │   ├── ranges.py           # chunked read/write
+│   │   ├── taskpane.ts         # pane entry point; calls the API directly
+│   │   ├── sheets.ts           # sheet writers (FR-701..704)
+│   │   ├── ranges.ts           # chunked read/write
 │   │   └── taskpane/           # HTML/CSS/Alpine templates
 │   └── manifest.xml
 ├── tests/
@@ -669,10 +669,14 @@ freeze. This bounded chunk loop is *required*, and is what hard rule 9 permits: 
 sync whose cost scales with cells, not one that scales with chunks.
 
 **Budget honestly.** 500,000 rows × 5 columns is 2.5M cells — 50 chunks. Under native Office.js
-those are 50 local syncs. **Under xlwings Server they are 50 HTTPS round trips to our server**,
-because routing Office.js through Python is what xlwings Server *is*. The original "tens of seconds"
-estimate holds only for the native case; the xlwings case is minutes and is the subject of the
-ADR-002 Phase 5 spike. Do not write the sheet writers before that spike reports.
+those are 50 local `context.sync()` calls, which is the native case the "tens of seconds"
+estimate assumes.
+
+*Historical note:* under xlwings Server they would have been 50 HTTPS round trips to our server
+carrying spreadsheet data, because routing Office.js through Python is what xlwings Server *is* —
+minutes rather than seconds, and grid I/O on our infrastructure bill. ADR-002 resolved to native
+Office.js on cost grounds before that mattered, but it is recorded because it is the reason not to
+revisit the decision later on convenience grounds.
 
 Hard cap: 500,000 rows (FR-107). Above that, refuse with a message pointing at file-based input.
 Note this caps **input** only — output overflow is a separate check (FR-708, §7.2).

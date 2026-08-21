@@ -137,7 +137,9 @@ kill the project. Runtime meets NFR-01 at the FR-216 default set.
 - Per-fold checkpointing: resume-from-last-completed-fold (FR-801) and the S4 partial leaderboard
   are the same mechanism.
 - `/v1/confirm` and the confirmation-token gate on `/v1/jobs` (AC-503).
-- Object storage abstraction, Parquet persistence, retention policy.
+- Object storage abstraction, Parquet persistence, retention policy (NFR-08: panels and
+  checkpoints expire; results and manifests are kept, or v2 stability monitoring needs a
+  migration).
 - Auth, quota, licence check on submission.
 - Deploy: API to Cloud Run or Container Apps. **Worker to Container Apps (KEDA Redis scaler) or
   Cloud Run Jobs** — a Redis-polling arq worker on plain Cloud Run has no inbound request to scale
@@ -154,10 +156,9 @@ exist until Phase 6 — a gate cannot test a later phase's feature.)
 ## Phase 5 — Excel add-in
 **Effort:** ~3 weeks
 
-- **ADR-002 spike first:** wall-clock for a 250,000-cell read through xlwings Server vs native
-  Office.js. If xlwings is >2× slower, drop the licence and write Office.js directly. No sheet
-  writer is written before this reports.
-- xlwings Server project, manifest, sideload dev loop.
+- Office.js add-in project (TypeScript), manifest, sideload dev loop. **The ADR-002 spike is
+  cancelled**: the project buys no licences, so xlwings PRO is out and there is nothing left to
+  measure. The pane calls the API directly and drives Office.js itself.
 - Chunked range reader with progress; 500k-row cap enforced.
 - Batched sheet writers for all five sheets — manifest inside the overwrite transaction (FR-703) —
   plus the FR-708 output-size precheck and the FR-703a workbook-state cases.
@@ -246,8 +247,7 @@ exactly the migration this note exists to avoid.
 
 These run in parallel with development and can kill the project early, which is the point.
 
-- **After G1:** show the CLI leaderboard to five demand planners. Do they understand it? Does
-  "nothing beat seasonal naive" read as honest or as failure?
-- **After G3:** publish the benchmark methodology. Solicit criticism from the forecasting community.
+- **After G3:** publish the benchmark methodology. Solicit criticism from the forecasting
+  community. `docs/06-METHODOLOGY.md` is the draft.
 - **Before G5:** landing page, try to collect ten pre-payments at €50/month. If you cannot find ten
   people who will pay before the add-in exists, no amount of engine quality fixes that.

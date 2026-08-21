@@ -1,7 +1,15 @@
+# Local stack and the self-hosted deployment bundle (TS §12).
+#
+# The worker is a separate service from the API deliberately: they scale on different
+# signals. The API scales on inbound requests; the worker scales on Redis queue length, and
+# a competition holds a core for minutes.
+
 services:
   redis:
     image: redis:7-alpine
     ports: ["6379:6379"]
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
+    volumes: [redis-data:/data]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -11,13 +19,31 @@ services:
     build: { context: ., target: runtime }
     command: uvicorn xlforecast.api.main:app --host 0.0.0.0 --port 8000
     ports: ["8000:8000"]
-    environment: { REDIS_URL: "redis://redis:6379" }
+    environment:
+      REDIS_URL: "redis://redis:6379"
+      XLF_OBJECT_ROOT: "/data/objects"
+      # No default in production. An unset signing key must fail loudly rather than
+      # silently accept forged confirmation tokens (TS §12).
+      XLF_TOKEN_SECRET: "${XLF_TOKEN_SECRET:?set XLF_TOKEN_SECRET}"
+    volumes: [object-store:/data/objects]
     depends_on:
       redis: { condition: service_healthy }
 
   worker:
     build: { context: ., target: runtime }
     command: arq xlforecast.worker.tasks.WorkerSettings
-    environment: { REDIS_URL: "redis://redis:6379" }
+    environment:
+      REDIS_URL: "redis://redis:6379"
+      XLF_OBJECT_ROOT: "/data/objects"
+      # NFR-02: byte-identity is defined relative to a recorded thread configuration, so it
+      # is pinned rather than inherited from whatever the host happens to expose.
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+    volumes: [object-store:/data/objects]
     depends_on:
       redis: { condition: service_healthy }
+
+volumes:
+  redis-data:
+  object-store:

@@ -265,3 +265,28 @@ and surfaced only by running the thing.** The two in this section are worse than
 defects in specification text I had written confidently a few sessions earlier, and the second was
 introduced *while fixing the first*. Measuring the alternative before asserting a conclusion is the
 cheap step that catches this, and it is the step I skipped.
+
+---
+
+## 9. Phase 4/5 — owner decisions (2026-08-21)
+
+| # | Decision | Consequence |
+|---|---|---|
+| D-7 | **The project buys no licences** | ADR-002 resolves to **native Office.js**; xlwings PRO is out and its Phase 5 spike is cancelled. `TimeGPT` is struck from the v2 model register on the same grounds — it is a paid commercial API |
+| D-8 | **Drop the five-demand-planner validation checkpoint** | Removed from the build plan's validation checkpoints. The post-G3 methodology review remains |
+
+**D-7 costs less than it might look.** Two of xlwings' three stated benefits had already been
+shown false: *"Python source stays server-side"* is delivered by the FastAPI architecture
+regardless, and cross-host support is a property of Office.js, not of xlwings. That left one
+real benefit — writing the add-in layer in Python — against a paid licence, a small vendor on
+the critical path of our only distribution channel, and a non-obvious cost: xlwings Server
+routes every range operation through our server, so the chunked read in TS §7.1 would have
+been N HTTPS round trips carrying spreadsheet data rather than N local `context.sync()` calls.
+
+The cost decision and the technical evidence point the same way, which is a comfortable place
+to land. Native Office.js also removes the debugging indirection that gate G5 exists to
+exercise: we now debug Office.js directly rather than at one remove, with better documentation.
+
+The Office.js surface is small and bounded — a chunked range reader, five batched sheet
+writers, a custom-properties accessor, a selection handler — and the pane is already
+HTML + Alpine.js + Bootstrap, so browser JavaScript was being written either way.

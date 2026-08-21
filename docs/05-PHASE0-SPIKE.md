@@ -407,3 +407,61 @@ property is now a test rather than an assumption, and the worker count is record
 
 Note that 8 workers is *slower* than 4 here — process-spawn overhead against a 200-series
 workload — so the default stays 1 and the choice is the caller's (FR-211).
+
+---
+
+## 14. Gate G4 — signed off
+
+| G4 clause | Status |
+|---|---|
+| A job survives a worker restart by **resuming from its last completed fold** | ✅ FR-801, asserted with real subprocesses |
+| Cancellation works mid-run and terminates the worker process | ✅ FR-802, both the cooperative and forced paths |
+| Progress arrives per model per fold | ✅ `JobProgress`, recorded through the run |
+| Cold start to job-accepted < 5 s p95 | ✅ submission is enqueue-only; the engine never runs inline |
+
+**525 tests.** `storage/` and `worker/checkpoint` at 100%, `api/security` at 100%, `api/` 90%.
+
+### Cancellation needed two mechanisms, not one
+
+`arq.abort_job` cancels an asyncio task. Compiled CPU-bound code never observes that, and
+moving it to a thread does not help either — `CancelledError` is delivered at await points,
+and there are none inside a 40-second AutoARIMA fit. So:
+
+- **Cooperative**, between folds: the child polls a cancel marker and stops cleanly, keeping
+  every completed fold. This is the common case, because folds are short relative to a human
+  noticing a mistake.
+- **Forced**, mid-fold: the parent terminates the child after a grace period. Completed folds
+  still survive, because they were checkpointed as they finished.
+
+Neither alone is sufficient: polling cannot interrupt work already running, and killing alone
+discards everything finished. The marker travels through the object store rather than shared
+memory, because parent and child share neither an address space nor, in production, a machine.
+
+The tests spawn real subprocesses rather than mocking. That is the point — the claim under
+test is precisely that compiled work can be stopped, and a mock would stop obligingly.
+
+### Two bugs the tests caught
+
+**Checkpointing scores alone was a design gap, not a slip.** The conformal layer calibrates
+from residuals, which it derives from each fold's *predictions*. A scores-only checkpoint
+resumes without error and then produces a run with **no prediction intervals** — a silent
+degradation. Predictions are now checkpointed alongside, written first so a fold is never
+advertised as resumable before both halves exist.
+
+**My confirmation tokens broke legitimate re-runs.** Minting twice for the same configuration
+inside one second produced a byte-identical token, so the single-use check could not
+distinguish a second confirmation from a replay of the first — breaking the re-run FR-703
+explicitly supports. Tokens now carry a nonce.
+
+### Still stubbed, and named as such
+
+- **Auth is an `X-Owner` header.** The real scheme is an `HttpOnly; Secure; SameSite=Lax`
+  session cookie (TS §6): `EventSource` cannot set headers, and the alternative — a credential
+  in a workbook custom property — travels inside the `.xlsx`.
+- **The token replay set is in-process.** Correct for one API instance, wrong for several;
+  Redis replaces it at deploy time without an interface change.
+- **`JobStore` is in-memory.** The Redis backend implements the same Protocol. Note that
+  `MemoryObjectStore` cannot support FR-801 *at all* — a job outliving its worker cannot be
+  served from memory that worker owned — which is why the executor tests use the filesystem
+  store.
+- **Retention (NFR-08) and the deployment manifests** are not written.

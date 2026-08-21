@@ -7,16 +7,22 @@ drift.
 
 from __future__ import annotations
 
+import io
+import json
 import uuid
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Response
+import polars as pl
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict
 
 from xlforecast import __version__
 from xlforecast.api.deps import Services, get_services
 from xlforecast.api.security import ConfirmationError, QuotaError
+from xlforecast.engine.run import profile_only
 from xlforecast.errors import XLForecastError
 from xlforecast.schemas.jobs import JobRecord
 from xlforecast.schemas.request import DataMapping, ForecastRequest
@@ -25,6 +31,13 @@ from xlforecast.storage.jobs import UnknownJobError
 __all__ = ["app"]
 
 app = FastAPI(title="xlforecast", version=__version__)
+
+#: FR-107 -- the grid path is capped; file input is not (ADR-008).
+MAX_PANEL_ROWS = 500_000
+MAX_UPLOAD_BYTES = 200_000_000
+STREAM_INTERVAL_SECONDS = 1.0
+#: A bounded stream: a client that stops reading must not pin a worker forever.
+STREAM_MAX_TICKS = 3600
 
 
 def _now() -> str:
@@ -72,6 +85,163 @@ def _fail(exc: XLForecastError, status: int) -> HTTPException:
 @app.get("/v1/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "version": __version__}
+
+
+@app.post("/v1/data")
+async def upload(
+    request: Request,
+    services: Annotated[Services, Depends(get_services)],
+    unique_id_col: str = "unique_id",
+    ds_col: str = "ds",
+    y_col: str = "y",
+    freq: str | None = None,
+    h: int = 1,
+) -> dict[str, Any]:
+    """Upload a panel; get back a `data_id`, a `DataProfile` and a validation report.
+
+    Profiling and validation happen here rather than at submission so the user learns that 12
+    of their 300 series are unusable *before* confirming a job, not after waiting for one
+    (FR-105, S1's live validation summary).
+
+    Not subject to NFR-03's 300 ms budget: this reads, profiles and validates up to 500,000
+    rows, and pretending otherwise would have made the NFR unsatisfiable rather than the
+    endpoint fast.
+    """
+    body = await request.body()
+    if not body:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "the upload was empty.",
+                "fix": "Send the panel as Parquet in the request body.",
+            },
+        )
+    if len(body) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail={
+                "message": f"the upload is {len(body) / 1e6:.0f} MB, over the "
+                f"{MAX_UPLOAD_BYTES / 1e6:.0f} MB limit.",
+                "fix": "Aggregate the panel, or use file-based input (ADR-008).",
+            },
+        )
+
+    try:
+        panel = pl.read_parquet(io.BytesIO(body))
+    except Exception as exc:  # noqa: BLE001 - any parse failure is one user-facing message
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "the upload could not be read as Parquet.",
+                "fix": "Export the panel as Parquet and try again.",
+                "detail": str(exc)[:200],
+            },
+        ) from None
+
+    if panel.height > MAX_PANEL_ROWS:
+        # FR-107. The cap is on the grid path; file input has no such limit.
+        raise HTTPException(
+            status_code=413,
+            detail={
+                "message": f"the panel has {panel.height:,} rows, over the "
+                f"{MAX_PANEL_ROWS:,} row cap.",
+                "fix": "Use CSV or Parquet file input instead of the grid (ADR-008).",
+            },
+        )
+
+    mapping = DataMapping(unique_id_col=unique_id_col, ds_col=ds_col, y_col=y_col)
+    data_id = str(uuid.uuid4())
+
+    # Check the mapping before renaming. `rename(strict=False)` skips a column that is not
+    # there, and the failure then surfaces from deep inside polars as a ColumnNotFoundError
+    # -- a library traceback where FS §4 requires a named column and a stated remedy.
+    missing = [c for c in (unique_id_col, ds_col, y_col) if c not in panel.columns]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": f"column '{missing[0]}' is not in the uploaded panel; "
+                f"it has {panel.columns}.",
+                "fix": "Correct the column mapping and upload again.",
+                "column": missing[0],
+            },
+        )
+
+    try:
+        renamed = panel.rename({unique_id_col: "unique_id", ds_col: "ds", y_col: "y"})
+        profile = profile_only(
+            renamed,
+            request=ForecastRequest(h=h, freq=freq or "D"),
+            mapping=mapping,
+            data_id=data_id,
+        )
+    except XLForecastError as exc:
+        raise _fail(exc, 400) from None
+
+    buffer = io.BytesIO()
+    renamed.write_parquet(buffer, compression="zstd")
+    services.objects.put(f"data/{data_id}.parquet", buffer.getvalue())
+    return {"data_id": data_id, "profile": profile.model_dump(mode="json")}
+
+
+@app.get("/v1/jobs/{job_id}/results")
+def results(job_id: str, services: Annotated[Services, Depends(get_services)]) -> Response:
+    """The full result set. Available only once the run has produced one."""
+    try:
+        services.jobs.get(job_id)
+    except UnknownJobError as exc:
+        raise _fail(exc, 404) from None
+    key = f"jobs/{job_id}/result.json"
+    if not services.objects.exists(key):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "this job has not produced results yet.",
+                "fix": "Poll the job status, then request results once it completes.",
+            },
+        )
+    return Response(content=services.objects.get(key), media_type="application/json")
+
+
+@app.get("/v1/jobs/{job_id}/stream")
+async def stream(
+    job_id: str, services: Annotated[Services, Depends(get_services)]
+) -> StreamingResponse:
+    """Progress as server-sent events.
+
+    Consumed with `fetch` + `ReadableStream`, **not** `EventSource`: the latter cannot attach
+    an Authorization header or a POST body, and the alternative -- putting a credential where
+    a header-less client can reach it -- means a token in a workbook custom property, which
+    travels inside the `.xlsx` (TS §6, hard rule 8).
+    """
+    try:
+        services.jobs.get(job_id)
+    except UnknownJobError as exc:
+        raise _fail(exc, 404) from None
+
+    async def events() -> AsyncIterator[bytes]:
+        import asyncio
+
+        last: str | None = None
+        for _ in range(STREAM_MAX_TICKS):
+            record = services.jobs.get(job_id)
+            progress = services.jobs.progress(job_id)
+            payload = json.dumps(
+                {
+                    "status": record.status.value,
+                    "progress": progress.model_dump(mode="json") if progress else None,
+                }
+            )
+            # Only send on change, so a slow fold does not fill the client's buffer with
+            # identical frames.
+            if payload != last:
+                yield f"data: {payload}\n\n".encode()
+                last = payload
+            if record.status.terminal:
+                return
+            await asyncio.sleep(STREAM_INTERVAL_SECONDS)
+
+    return StreamingResponse(events(), media_type="text/event-stream")
 
 
 @app.post("/v1/confirm")

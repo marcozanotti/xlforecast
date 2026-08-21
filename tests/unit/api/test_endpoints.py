@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -180,3 +182,122 @@ def test_health_reports_the_engine_version(client):
     body = client.get("/v1/health").json()
     assert body["status"] == "ok"
     assert body["version"]
+
+
+class TestDataUpload:
+    """FR-103 / FR-105 / FR-107 -- profiling and validation happen at upload, so the user
+    learns which series are unusable before spending compute rather than after."""
+
+    def _parquet(self, n_series: int = 4, n_obs: int = 60) -> bytes:
+        import io
+
+        import numpy as np
+        import pandas as pd
+        import polars as pl
+
+        rng = np.random.default_rng(5)
+        frames = []
+        for i in range(n_series):
+            dates = pd.date_range("2018-01-31", periods=n_obs, freq="ME")
+            frames.append(
+                pl.DataFrame(
+                    {
+                        "sku": [f"S{i}"] * n_obs,
+                        "week": list(dates),
+                        "units": (200 + rng.normal(0, 5, n_obs)).tolist(),
+                    }
+                )
+            )
+        buffer = io.BytesIO()
+        pl.concat(frames).write_parquet(buffer)
+        return buffer.getvalue()
+
+    def _upload(self, client, payload: bytes):
+        return client.post(
+            "/v1/data?unique_id_col=sku&ds_col=week&y_col=units&freq=ME&h=6",
+            content=payload,
+            headers={"content-type": "application/octet-stream"},
+        )
+
+    def test_a_panel_uploads_and_returns_a_profile(self, client):
+        response = self._upload(client, self._parquet())
+        assert response.status_code == 200
+        body = response.json()
+        assert body["data_id"]
+        assert body["profile"]["n_series"] == 4
+
+    def test_the_profile_carries_the_validation_report(self, client):
+        """S1's live validation summary: '288 of 300 series valid'."""
+        body = self._upload(client, self._parquet()).json()
+        report = body["profile"]["validation"]
+        assert report["n_series_in"] == 4
+        assert "excluded" in report
+
+    def test_the_uploaded_panel_is_stored_for_the_job_to_load(self, client, services):
+        data_id = self._upload(client, self._parquet()).json()["data_id"]
+        assert services.objects.exists(f"data/{data_id}.parquet")
+
+    def test_the_profile_contains_no_observations(self, client):
+        """NFR-07 -- this object crosses the LLM trust boundary."""
+        body = self._upload(client, self._parquet()).json()
+        assert "200.0" not in json.dumps(body["profile"])
+
+    def test_an_empty_upload_is_rejected_with_a_fix(self, client):
+        response = client.post("/v1/data", content=b"")
+        assert response.status_code == 400
+        assert response.json()["detail"]["fix"]
+
+    def test_a_non_parquet_upload_is_rejected_without_a_traceback(self, client):
+        response = self._upload(client, b"this is not parquet")
+        assert response.status_code == 400
+        assert "Traceback" not in response.text
+        assert response.json()["detail"]["fix"]
+
+    def test_a_bad_column_mapping_names_the_column(self, client):
+        response = client.post(
+            "/v1/data?unique_id_col=sku&ds_col=week&y_col=revenue&freq=ME&h=6",
+            content=self._parquet(),
+            headers={"content-type": "application/octet-stream"},
+        )
+        assert response.status_code == 400
+        detail = response.json()["detail"]
+        assert detail["column"] == "revenue"
+        assert detail["fix"]
+        assert "Traceback" not in response.text
+
+
+class TestResultsEndpoint:
+    def test_results_before_completion_say_so(self, client):
+        job_id = client.post("/v1/jobs", json=submit_body(confirm(client))).json()["job_id"]
+        response = client.get(f"/v1/jobs/{job_id}/results")
+        assert response.status_code == 409
+        assert response.json()["detail"]["fix"]
+
+    def test_stored_results_are_returned(self, client, services):
+        job_id = client.post("/v1/jobs", json=submit_body(confirm(client))).json()["job_id"]
+        services.objects.put(f"jobs/{job_id}/result.json", b'{"job_id":"x"}')
+        assert client.get(f"/v1/jobs/{job_id}/results").json() == {"job_id": "x"}
+
+    def test_results_for_an_unknown_job_are_a_named_404(self, client):
+        assert client.get("/v1/jobs/ghost/results").status_code == 404
+
+
+class TestProgressStream:
+    """TS §7.3 -- consumed with fetch + ReadableStream, not EventSource."""
+
+    def test_a_terminal_job_streams_once_and_closes(self, client, services):
+        from xlforecast.schemas.jobs import JobStatus
+
+        job_id = client.post("/v1/jobs", json=submit_body(confirm(client))).json()["job_id"]
+        record = services.jobs.get(job_id)
+        services.jobs.update(record.model_copy(update={"status": JobStatus.COMPLETED}))
+
+        with client.stream("GET", f"/v1/jobs/{job_id}/stream") as response:
+            assert response.status_code == 200
+            assert response.headers["content-type"].startswith("text/event-stream")
+            body = "".join(response.iter_text())
+        assert body.count("data:") == 1
+        assert "completed" in body
+
+    def test_streaming_an_unknown_job_is_a_named_404(self, client):
+        assert client.get("/v1/jobs/ghost/stream").status_code == 404

@@ -13,7 +13,10 @@ Specifications live in [`docs/`](docs/). Read `00-PROJECT-BRIEF.md` first, then 
 
 ## Status
 
-**Phase 3 complete — gates G0–G3 passed.** Benchmarked against the Monash archive's published
+**Phase 4 in progress — gates G0–G4 passed.** Async API, killable worker, per-fold
+resume.
+
+**Phase 3 — gates G0–G3 passed.** Benchmarked against the Monash archive's published
 M3 baselines: 9 of 9 comparisons pass, with M3 Monthly reproducing the published numbers to
 within 0.3%. See [`docs/06-METHODOLOGY.md`](docs/06-METHODOLOGY.md) for what the numbers mean
 and what the tool does not claim.

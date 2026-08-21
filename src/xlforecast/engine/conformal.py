@@ -56,6 +56,17 @@ __all__ = [
 ]
 
 DEFAULT_MIN_RESIDUALS = 20
+#: A series has `n_windows * h` residuals, so per-series calibration engages only when that
+#: product clears `DEFAULT_MIN_RESIDUALS`. At the NFR-01 defaults (3 windows, h=13) it does,
+#: at 39; at h=6 it does not, and every series falls back to the pooled panel residuals.
+#:
+#: That matters beyond band width. Cross-conformal needs *more* residuals than in-calibration,
+#: because each fold's band is built from a strictly smaller pool -- so `min_residuals` bites
+#: harder here than the number suggests. It also blunts AC-301's control: dropping one fold
+#: from a large pooled set barely moves the quantile, so the honest and in-calibration figures
+#: converge (measured gap +0.090 under per-series calibration, +0.007 under pooled). The
+#: control is still directionally correct, but a reader should know which regime produced it.
+#: `CalibrationRow.n_pooled_fallback` reports it.
 
 #: unique_id -> (lower, upper) bound implied by the observed history.
 Support = dict[str, tuple[float, float]]

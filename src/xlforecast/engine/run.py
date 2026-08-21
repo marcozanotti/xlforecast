@@ -23,15 +23,19 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from typing import Literal
 
 import polars as pl
 
 from xlforecast import __version__
+from xlforecast.engine import conformal as conformal_layer
 from xlforecast.engine import local as local_family
 from xlforecast.engine import ml as ml_family
+from xlforecast.engine.ensemble import EnsemblePlan, combine_point, ensemble_name, lofo_weights
 from xlforecast.engine.evaluate import build_leaderboard, score_fold
 from xlforecast.engine.folds import make_folds
 from xlforecast.engine.registry import is_ml
+from xlforecast.engine.select import select
 from xlforecast.engine.timing import measure
 from xlforecast.ingest.profile import profile_panel
 from xlforecast.ingest.readers import gap_fill, read_panel, split_future_rows
@@ -41,6 +45,8 @@ from xlforecast.schemas.artifacts import ArtifactPack
 from xlforecast.schemas.profile import DataProfile
 from xlforecast.schemas.request import DataMapping, ForecastRequest, ResolvedRequest
 from xlforecast.schemas.results import (
+    CalibrationRow,
+    FoldScore,
     ForecastFrame,
     ForecastRow,
     Manifest,
@@ -183,8 +189,25 @@ def run_from_frame(
     ml_names = [m for m in resolved.models if is_ml(m)]
     origin, _ = span(panel)
 
+    plan = (
+        EnsemblePlan(
+            method=resolved.ensemble,
+            members=tuple(resolved.models),
+            trim=resolved.ensemble_trim,
+            best_k=resolved.best_k,
+            metric=resolved.ensemble_metric,
+            prob_method=resolved.ensemble_prob_method,
+        )
+        if resolved.ensemble != "none" and len(resolved.models) >= 2
+        else None
+    )
+    scored_models = [*resolved.models, *([ensemble_name(resolved.ensemble)] if plan else [])]
+
     timings: list[ModelTiming] = []
-    fold_scores = []
+    fold_scores: list[FoldScore] = []
+    fold_predictions: dict[int, pl.DataFrame] = {}
+    ensemble_weights: dict[int | None, dict[str, float]] = {}
+    ensemble_fallbacks: set[str] = set()
     for fold in folds:
         frames = []
         if local_names:
@@ -210,17 +233,66 @@ def run_from_frame(
             frames.append(preds)
             timings.extend(t_ml)
 
+        combined = pl.concat(frames)
+
+        # FR-405: the ensemble is built and scored INSIDE the CV loop, on this fold's
+        # member predictions -- never assembled from final forecasts. FR-405a: the weights
+        # it uses here were estimated without this fold.
+        if plan is not None:
+            with measure() as t:
+                weights, fell_back = lofo_weights(fold_scores, plan=plan, exclude_fold=fold.index)
+                ensemble_preds, more = combine_point(combined, plan=plan, weights=weights)
+                combined = pl.concat([combined, ensemble_preds])
+                ensemble_fallbacks.update(fell_back + more)
+                ensemble_weights[fold.index] = weights
+            overhead.add("ensemble", t.cpu)
+
+        fold_predictions[fold.index] = combined
         with measure() as t:
             fold_scores.extend(
-                score_fold(
-                    fold, pl.concat(frames), models=resolved.models, season_length=season_length
-                )
+                score_fold(fold, combined, models=scored_models, season_length=season_length)
             )
         overhead.add("evaluate", t.cpu)
 
     with measure() as t:
-        leaderboard = build_leaderboard(fold_scores, models=resolved.models)
+        leaderboard = build_leaderboard(fold_scores, models=scored_models)
     overhead.add("evaluate", t.cpu)
+
+    # Conformal calibration and its diagnostics (FR-301/302/303/307).
+    with measure() as t:
+        residuals = conformal_layer.collect_residuals(folds, fold_predictions)
+        support = conformal_layer.series_support(panel)
+        calibration = _calibrate_all(
+            residuals,
+            models=scored_models,
+            levels=resolved.levels,
+            support=support,
+            profile=profile,
+        )
+        bands = (
+            [
+                conformal_layer.calibrate(
+                    residuals,
+                    model=m,
+                    level=level,
+                    all_folds=frozenset(f.index for f in folds),
+                )
+                for m in scored_models
+                for level in resolved.levels
+            ]
+            if resolved.conformal
+            else []
+        )
+    overhead.add("conformal", t.cpu)
+
+    with measure() as t:
+        selection = select(
+            fold_scores,
+            strategy=resolved.selection,
+            n_windows=resolved.n_windows,
+            any_beat_baseline=leaderboard.any_beat_baseline,
+        )
+    overhead.add("select", t.cpu)
 
     # Refit on full history for the delivered forecast.
     final_frames = []
@@ -280,10 +352,14 @@ def run_from_frame(
         ets_mode=resolved.ets,
         crps_quantiles=[],  # Phase 2
         ensemble_params={
-            "method": resolved.ensemble,
+            "method": plan.method if plan else "none",
+            "prob_method": resolved.ensemble_prob_method,
             "metric": resolved.ensemble_metric,
             "trim": resolved.ensemble_trim,
             "best_k": resolved.best_k,
+            "fallbacks": "; ".join(sorted(ensemble_fallbacks)) or "none",
+            "selection": selection.strategy,
+            "selection_warnings": "; ".join(selection.warnings) or "none",
         },
         prompt_versions={},
         thread_config=_thread_config(),
@@ -299,7 +375,8 @@ def run_from_frame(
         leaderboard=leaderboard,
         forecast=forecast,
         fold_scores=fold_scores,
-        bands=[],  # Phase 2
+        bands=bands,
+        calibration=calibration,
         timing=RunTiming(
             per_model=timings,
             overhead_cpu_seconds=overhead.totals,
@@ -332,3 +409,102 @@ def profile_only(
     season_length = request.season_length or prelim.season_length_candidates[0]
     report = validate_panel(history, request=request, profile=prelim, season_length=season_length)
     return prelim.model_copy(update={"validation": report})
+
+
+def _calibrate_all(
+    residuals: pl.DataFrame,
+    *,
+    models: list[str],
+    levels: list[int],
+    support: conformal_layer.Support,
+    profile: DataProfile,
+) -> list[CalibrationRow]:
+    """Build XLF_Diagnostics block 3 (FR-303, FR-307a/b).
+
+    Coverage is a single panel figure -- measurement showed splitting it by intermittency
+    class carries no information (0.807 against 0.809). The **tails** are split by class,
+    because that is where the classes actually differ (0.00/0.19 against 0.13/0.07), and the
+    difference is invisible in the coverage number.
+    """
+    all_folds = frozenset(residuals.get_column("fold_index").unique().to_list())
+    classes = {s.unique_id: s.intermittency for s in profile.series}
+    intermittent = {uid for uid, k in classes.items() if k in ("intermittent", "lumpy")}
+    smooth = set(classes) - intermittent
+
+    rows: list[CalibrationRow] = []
+    for model in models:
+        for level in levels:
+            nominal = level / 100.0
+            bands = conformal_layer.calibrate(
+                residuals, model=model, level=level, all_folds=all_folds
+            )
+            _, clip_rates = conformal_layer.apply_bands(
+                residuals.filter(pl.col("model") == model), bands, support
+            )
+            rows.append(
+                CalibrationRow(
+                    model=model,
+                    level=level,
+                    scope="all",
+                    nominal=nominal,
+                    # FR-302a: when most series fall back to the pooled panel residuals, the
+                    # AC-301 control loses its discriminating power -- dropping one fold from
+                    # a large pool barely moves the quantile. Surfaced so a reader can tell
+                    # a strong result from a structurally weak one.
+                    n_pooled_fallback=len(bands.pooled_fallback),
+                    mean_clip_rate=(
+                        float(sum(clip_rates.values()) / len(clip_rates)) if clip_rates else None
+                    ),
+                    empirical=_finite(
+                        conformal_layer.coverage(
+                            residuals, model=model, level=level, support=support
+                        )
+                    ),
+                    # The AC-301 control. Diagnostics only: it is conservative by
+                    # construction and cannot report under-coverage, so it is evidence
+                    # about the honest figure rather than a figure to show a user.
+                    empirical_in_calibration=_finite(
+                        conformal_layer.coverage(
+                            residuals,
+                            model=model,
+                            level=level,
+                            support=support,
+                            in_calibration=True,
+                        )
+                    ),
+                    mean_width=_finite(
+                        conformal_layer.interval_width(
+                            residuals, model=model, level=level, support=support
+                        )
+                    ),
+                )
+            )
+            scopes: tuple[tuple[Literal["smooth", "intermittent"], set[str]], ...] = (
+                ("smooth", smooth),
+                ("intermittent", intermittent),
+            )
+            for scope, members in scopes:
+                if not members:
+                    continue
+                subset = residuals.filter(pl.col(ID).is_in(list(members)))
+                lower, upper = conformal_layer.tail_miscoverage(
+                    subset, model=model, level=level, support=support
+                )
+                rows.append(
+                    CalibrationRow(
+                        model=model,
+                        level=level,
+                        scope=scope,
+                        nominal=nominal,
+                        lower_tail=_finite(lower),
+                        upper_tail=_finite(upper),
+                    )
+                )
+    return rows
+
+
+def _finite(value: float) -> float | None:
+    """FR-214 -- an unmeasurable figure is `None`, never `NaN`."""
+    import math
+
+    return None if value is None or math.isnan(value) or math.isinf(value) else float(value)

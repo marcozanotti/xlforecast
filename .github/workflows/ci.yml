@@ -42,9 +42,10 @@ jobs:
           uv run coverage report --include="src/xlforecast/schemas/*" --fail-under=95
           uv run coverage report --include="src/xlforecast/engine/*"  --fail-under=85
           uv run coverage report --include="src/xlforecast/ingest/*"  --fail-under=85
-          # NFR-10 names three modules at 100%. folds.py exists now; conformal.py arrives in
-          # Phase 2 and guardrail.py in Phase 6, and each adds its line here when it lands.
-          uv run coverage report --include="src/xlforecast/engine/folds.py" --fail-under=100
+          # NFR-10 names three modules at 100%. guardrail.py arrives in Phase 6 and adds
+          # its line here when it lands.
+          uv run coverage report --include="src/xlforecast/engine/folds.py"     --fail-under=100
+          uv run coverage report --include="src/xlforecast/engine/conformal.py" --fail-under=100
 
   container:
     name: G0 container import gate

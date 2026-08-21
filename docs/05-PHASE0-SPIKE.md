@@ -228,3 +228,43 @@ the named, remediable error FS §4 requires. Translated at the boundary.
 Neither surfaced in the end-to-end run. Both were found by writing tests for modules that were
 already exercised indirectly — which is the argument for item 3 of this list having been worth
 doing rather than declaring Phase 1 finished at the first green CLI run.
+
+---
+
+## 10. Gate G2 — signed off
+
+| G2 clause | Status |
+|---|---|
+| Out-of-calibration coverage within ±5pp of nominal | ✅ asserted per model per level on a known-noise panel |
+| In-calibration control proves the figure is not a tautology | ✅ AC-301, see below |
+| Clip removal demonstrably changes the interval | ✅ AC-307 as rewritten — width, not coverage |
+| Ensemble scored on the same folds as its members | ✅ `FoldScore.fold_index` equality |
+| Ensemble weights demonstrably leave-one-fold-out | ✅ FR-405a — perturbing fold *k* does not move fold *k*'s weights |
+
+**370 tests. `conformal.py` and `folds.py` at 100%; `engine/` at 97%.** Both 100% floors are
+enforced in CI.
+
+### The control behaves differently than the review predicted, and better
+
+I expected the in-calibration figure to sit *closer* to nominal. It sits systematically
+**above** it — 0.844 against an honest 0.809 at level 80, 1.000 against 0.953 at level 95 —
+because a conformal quantile with the finite-sample correction is conservative on its own
+calibration sample. That is a sharper indictment than the one the review made: the control
+cannot come out *low*, so it would report a comfortable number for an interval that was far
+too narrow.
+
+### A configuration interaction worth knowing about (FR-302a)
+
+A series has `n_windows × h` residuals, so per-series calibration engages only when that
+product clears `min_residuals` (default 20). At the NFR-01 defaults (3 windows, h=13) it does,
+at 39. At h=6 it does not, and every series falls back to the pooled panel residuals.
+
+That blunts the AC-301 control: dropping one fold from a large pooled set barely moves the
+quantile, so the two figures converge — measured gap **+0.090** under per-series calibration
+against **+0.007** under pooled. The control stays directionally correct either way, but a
+reader should be able to tell a strong result from a structurally weak one, so
+`CalibrationRow.n_pooled_fallback` now reports which regime produced the number.
+
+Cross-conformal also needs *more* residuals than in-calibration, since each fold's band is
+built from a strictly smaller pool. `min_residuals` therefore bites harder here than its value
+suggests.

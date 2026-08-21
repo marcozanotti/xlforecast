@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>xlforecast</title>
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <link rel="stylesheet" href="./taskpane.css" />
+  </head>
+  <body>
+    <!--
+      Five states, one pane (FS §4). Kept boring and dense on purpose: the users are Excel
+      users, and a spreadsheet add-in that looks like a consumer app reads as less trustworthy
+      rather than more.
+    -->
+    <main id="pane">
+      <section data-state="S1">
+        <h1>Data</h1>
+        <p class="hint" id="selection-summary">Select the range containing your data.</p>
+        <label>Series id <select id="map-unique-id"></select></label>
+        <label>Date <select id="map-ds"></select></label>
+        <label>Value <select id="map-y"></select></label>
+        <p class="validation" id="validation-summary"></p>
+        <button id="btn-read">Read selection</button>
+      </section>
+
+      <section data-state="S2" hidden>
+        <h1>Configure</h1>
+        <!--
+          The manual form is the source of truth (FS §4, S2). Natural language arrives in
+          Phase 6 and fills this in; it never bypasses it.
+        -->
+        <label>Horizon <input id="cfg-h" type="number" min="1" max="520" value="13" /></label>
+        <label>Frequency <input id="cfg-freq" type="text" value="W" /></label>
+        <label>Season length <input id="cfg-season" type="number" placeholder="inferred" /></label>
+        <label>CV windows <input id="cfg-windows" type="number" min="1" max="20" value="3" /></label>
+        <label>Selection
+          <select id="cfg-selection">
+            <option value="pooled" selected>Pooled (one winner for the panel)</option>
+            <option value="per_series">Per series</option>
+          </select>
+        </label>
+        <p class="warn" id="selection-warning" hidden></p>
+        <fieldset id="cfg-models"><legend>Models</legend></fieldset>
+        <button id="btn-configure">Continue</button>
+      </section>
+
+      <section data-state="S3" hidden>
+        <h1>Confirm</h1>
+        <dl id="confirm-summary"></dl>
+        <ul id="assumptions"></ul>
+        <p class="hint" id="runtime-estimate"></p>
+        <p class="warn" id="output-refusal" hidden></p>
+        <button id="btn-run">Run</button>
+      </section>
+
+      <section data-state="S4" hidden>
+        <h1>Running</h1>
+        <progress id="progress" max="100" value="0"></progress>
+        <p id="progress-detail"></p>
+        <table id="partial-leaderboard"></table>
+        <button id="btn-cancel">Cancel</button>
+      </section>
+
+      <section data-state="S5" hidden>
+        <h1>Results</h1>
+        <p id="verdict"></p>
+        <p id="coverage-note"></p>
+        <table id="leaderboard"></table>
+        <button id="btn-explain">Explain results</button>
+        <button id="btn-explain-cell">Explain this cell</button>
+        <button id="btn-rerun">Re-run</button>
+        <button id="btn-export-manifest">Export manifest</button>
+      </section>
+
+      <p class="error" id="error" hidden></p>
+    </main>
+    <script type="module" src="./taskpane.ts"></script>
+  </body>
+</html>

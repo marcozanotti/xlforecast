@@ -19,13 +19,17 @@ Full specifications live in `docs/`:
 - `06-METHODOLOGY.md` — the public methodology page. If a change makes this harder to write
   honestly, that is the signal to stop and reconsider the change
 - `07-DEPLOYMENT.md` — topology, configuration and the constraints that bite late
+- `08-ADDIN-CHECKLIST.md` — gate G5's host verification. Human-run; it cannot be automated
 
 ---
 
 ## Commands
 
 ```bash
-uv sync --all-extras            # install
+uv sync --all-extras            # install (Python)
+cd addin && npm ci             # install (add-in)
+cd addin && npx vitest run     # add-in tests
+cd addin && npx tsc --noEmit   # add-in types
 uv run pytest                   # all tests
 uv run pytest tests/unit -x     # fast loop
 uv run ruff check --fix .       # lint

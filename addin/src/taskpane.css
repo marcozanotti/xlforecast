@@ -1,0 +1,15 @@
+/* Deliberately plain. Excel users judge a pane on density and legibility. */
+:root { font: 13px/1.45 "Segoe UI", system-ui, sans-serif; color: #201f1e; }
+body { margin: 0; padding: 12px; }
+h1 { font-size: 15px; margin: 0 0 8px; }
+label { display: block; margin: 6px 0; }
+label select, label input { width: 100%; box-sizing: border-box; padding: 4px; }
+button { margin-top: 10px; padding: 6px 12px; cursor: pointer; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 2px 4px; border-bottom: 1px solid #edebe9; }
+th:first-child, td:first-child { text-align: left; }
+.hint { color: #605e5c; }
+.warn { color: #8a6d00; background: #fff4ce; padding: 6px; border-radius: 2px; }
+.error { color: #a4262c; background: #fde7e9; padding: 6px; border-radius: 2px; }
+.validation { color: #605e5c; }
+progress { width: 100%; }

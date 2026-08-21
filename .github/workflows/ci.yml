@@ -50,6 +50,26 @@ jobs:
           uv run coverage report --include="src/xlforecast/engine/folds.py"     --fail-under=100
           uv run coverage report --include="src/xlforecast/engine/conformal.py" --fail-under=100
 
+  addin:
+    name: add-in · typecheck · tests
+    runs-on: ubuntu-latest
+    defaults:
+      run: { working-directory: addin }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: addin/package-lock.json
+      - run: npm ci
+      - name: typecheck
+        run: npx tsc --noEmit
+      - name: tests
+        run: npx vitest run
+      - name: manifest is well-formed
+        run: python3 -c "import xml.etree.ElementTree as ET; ET.parse('manifest.xml')"
+
   container:
     name: G0 container import gate
     runs-on: ubuntu-latest

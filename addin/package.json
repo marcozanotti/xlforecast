@@ -10,7 +10,11 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src test --max-warnings 0",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "certs": "office-addin-dev-certs install --machine",
+    "certs:verify": "office-addin-dev-certs verify",
+    "sideload": "office-addin-debugging start manifest.xml desktop",
+    "sideload:stop": "office-addin-debugging stop manifest.xml"
   },
   "devDependencies": {
     "@types/office-js": "^1.0.377",
@@ -19,7 +23,9 @@
     "eslint": "^9.17.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.5",
-    "vitest": "^2.1.8"
+    "vitest": "^2.1.8",
+    "office-addin-debugging": "^6.0.3",
+    "office-addin-dev-certs": "^2.0.3"
   },
   "dependencies": {
     "apache-arrow": "^21.2.0"

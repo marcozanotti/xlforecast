@@ -132,6 +132,9 @@ module = [
     "statsmodels.*",
     "threadpoolctl.*",
     "pyarrow.*",
+    "redis.*",
+    "arq.*",
+    "fakeredis.*",
 ]
 ignore_missing_imports = true
 

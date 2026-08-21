@@ -135,8 +135,13 @@ def _read_arrow(body: bytes, *, streaming: bool) -> pl.DataFrame:
 
 
 @app.get("/v1/health")
-def health() -> dict[str, str]:
-    return {"status": "ok", "version": __version__}
+def health(services: Annotated[Services, Depends(get_services)]) -> dict[str, str]:
+    return {
+        "status": "ok",
+        "version": __version__,
+        # Surfaced so a deployment cannot quietly be running jobs in the API process.
+        "mode": "inline (development)" if services.inline else "queued",
+    }
 
 
 @app.post("/v1/data")
@@ -312,7 +317,7 @@ def confirm(
 
 
 @app.post("/v1/jobs", status_code=202)
-def submit(
+async def submit(
     body: SubmitBody,
     services: Annotated[Services, Depends(get_services)],
     owner: Annotated[str, Depends(_owner)],
@@ -347,7 +352,7 @@ def submit(
     )
     services.jobs.create(record)
     if services.enqueue is not None:
-        services.enqueue(record.job_id)
+        await services.enqueue(record.job_id)
     return {"job_id": record.job_id, "status": record.status.value}
 
 

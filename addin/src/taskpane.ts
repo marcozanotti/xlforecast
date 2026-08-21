@@ -21,9 +21,11 @@ import { WorkbookState, type PropertyBag } from "./state";
 
 type State = "S1" | "S2" | "S3" | "S4" | "S5";
 
-// Build-time configuration, not runtime state: the pane must not let a page it did not build
-// point it at another host.
-const api = new ApiClient(import.meta.env.VITE_API_BASE ?? "https://localhost:8000");
+// Same-origin by default: the dev server and the deployment both proxy `/v1` to the API.
+// An absolute origin here would be mixed content in development and cross-origin in
+// production, and the session cookie would be dropped in both cases. Overridable at build
+// time only -- the pane must not let a page it did not build point it at another host.
+const api = new ApiClient(import.meta.env.VITE_API_BASE ?? "");
 
 const DEFAULT_MODELS = [
   "SeasonalNaive", "HistoricAverage", "WindowAverage", "AutoARIMA", "AutoETS",

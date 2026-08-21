@@ -20,6 +20,7 @@ Full specifications live in `docs/`:
   honestly, that is the signal to stop and reconsider the change
 - `07-DEPLOYMENT.md` — topology, configuration and the constraints that bite late
 - `08-ADDIN-CHECKLIST.md` — gate G5's host verification. Human-run; it cannot be automated
+- `09-RUNNING-THE-ADDIN.md` — how to get the add-in loaded in Excel to run that checklist
 
 ---
 

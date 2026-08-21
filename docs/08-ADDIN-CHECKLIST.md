@@ -6,6 +6,10 @@ Excel for Mac (WKWebView) and Excel on the web, and the differences are in exact
 this add-in touches: range I/O at volume, custom properties, streaming responses, and sheet
 visibility.
 
+Setup instructions are in [`09-RUNNING-THE-ADDIN.md`](09-RUNNING-THE-ADDIN.md). Install the
+development certificate first: without it, A1 fails for reasons that have nothing to do with
+the add-in.
+
 Run every row on all three hosts before signing off G5. Record the date, the build, and the
 Excel version — "it worked" without a version is not a result.
 

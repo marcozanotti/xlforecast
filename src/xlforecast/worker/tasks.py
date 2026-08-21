@@ -121,10 +121,30 @@ async def arq_run_job(ctx: dict[str, Any], job_id: str) -> str:
 
 
 async def startup(ctx: dict[str, Any]) -> None:  # pragma: no cover - wiring
-    from xlforecast.storage.jobs import InMemoryJobStore
+    """Build the worker's dependencies from the environment.
 
+    The job store must be the *same* one the API writes to, which means Redis. An earlier
+    version built an `InMemoryJobStore` here, so the worker and the API each had their own and
+    a submitted job was never seen -- it simply sat at "queued" forever, with nothing in
+    either log to say why.
+    """
+    import redis as redis_sync
+
+    from xlforecast.storage.redis_backend import RedisJobStore
+
+    redis_url = os.environ.get("REDIS_URL")
+    if not redis_url:
+        raise RuntimeError(
+            "REDIS_URL is not set. The worker shares job state with the API through Redis; "
+            "without it the worker cannot see the API's jobs."
+        )
     root = os.environ.get("XLF_OBJECT_ROOT", "/var/lib/xlforecast")
-    ctx["deps"] = WorkerDeps(jobs=InMemoryJobStore(), objects=LocalObjectStore(root))
+    ctx["deps"] = WorkerDeps(
+        jobs=RedisJobStore(
+            client=redis_sync.from_url(redis_url),  # type: ignore[no-untyped-call]
+        ),
+        objects=LocalObjectStore(root),
+    )
 
 
 class WorkerSettings:  # pragma: no cover - wiring
@@ -132,6 +152,13 @@ class WorkerSettings:  # pragma: no cover - wiring
 
     functions: ClassVar[list[Any]] = [arq_run_job]
     on_startup = startup
+
+    @staticmethod
+    def redis_settings() -> Any:
+        from arq.connections import RedisSettings
+
+        return RedisSettings.from_dsn(os.environ.get("REDIS_URL", "redis://localhost:6379"))
+
     #: One job at a time per worker: each already saturates its cores through the engine's
     #: own `n_jobs`, and overcommitting would slow every job rather than finish any sooner.
     max_jobs = 1

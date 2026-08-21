@@ -105,10 +105,11 @@ def _package_versions() -> dict[str, str]:
     return out
 
 
-def _thread_config() -> dict[str, str]:
+def _thread_config(n_jobs: int = 1) -> dict[str, str]:
     import os
 
     config = {k: os.environ.get(k, "unset") for k in THREAD_KEYS}
+    config["n_jobs"] = str(n_jobs)
     config["blas"] = "unknown"
     try:
         import threadpoolctl
@@ -122,10 +123,15 @@ def _thread_config() -> dict[str, str]:
 
 
 def run_from_path(
-    path: str | Path, *, request: ForecastRequest, mapping: DataMapping, job_id: str | None = None
+    path: str | Path,
+    *,
+    request: ForecastRequest,
+    mapping: DataMapping,
+    job_id: str | None = None,
+    n_jobs: int = 1,
 ) -> RunResult:
     raw = read_panel(path, mapping)
-    return run_from_frame(raw, request=request, mapping=mapping, job_id=job_id)
+    return run_from_frame(raw, request=request, mapping=mapping, job_id=job_id, n_jobs=n_jobs)
 
 
 def run_from_frame(
@@ -134,6 +140,7 @@ def run_from_frame(
     request: ForecastRequest,
     mapping: DataMapping,
     job_id: str | None = None,
+    n_jobs: int = 1,
 ) -> RunResult:
     """Run one competition. Every number in the result comes from forecasting code."""
     job_id = job_id or str(uuid.uuid4())
@@ -226,6 +233,7 @@ def run_from_frame(
                 freq=resolved.freq,
                 season_length=season_length,
                 origin=origin,
+                n_jobs=n_jobs,
             )
             frames.append(preds)
             timings.extend(t_local)
@@ -329,6 +337,7 @@ def run_from_frame(
             freq=resolved.freq,
             season_length=season_length,
             origin=origin,
+            n_jobs=n_jobs,
         )
         final_frames.append(preds)
         timings.extend(t_local)
@@ -428,7 +437,7 @@ def run_from_frame(
             "selection_warnings": "; ".join(selection.warnings) or "none",
         },
         prompt_versions={},
-        thread_config=_thread_config(),
+        thread_config=_thread_config(n_jobs),
         previous_job_id=None,
         started_at=started,
         finished_at=datetime.now(UTC).isoformat(),
@@ -447,7 +456,7 @@ def run_from_frame(
             per_model=timings,
             overhead_cpu_seconds=overhead.totals,
             total_wall_seconds=time.perf_counter() - wall0,
-            n_workers=1,
+            n_workers=n_jobs,
         ),
         artifacts=_empty_pack(job_id),
         manifest=manifest,

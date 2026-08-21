@@ -13,7 +13,12 @@ Specifications live in [`docs/`](docs/). Read `00-PROJECT-BRIEF.md` first, then 
 
 ## Status
 
-**Phase 1 complete — gates G0 and G1 passed.** 284 tests; engine 95% covered, ingest 92%,
+**Phase 3 complete — gates G0–G3 passed.** Benchmarked against the Monash archive's published
+M3 baselines: 9 of 9 comparisons pass, with M3 Monthly reproducing the published numbers to
+within 0.3%. See [`docs/06-METHODOLOGY.md`](docs/06-METHODOLOGY.md) for what the numbers mean
+and what the tool does not claim.
+
+**Phase 1 — gates G0 and G1 passed.** 284 tests; engine 95% covered, ingest 92%,
 schemas 99%, `engine/folds.py` 100%. `uv run xlforecast run panel.csv --h 13 --freq W` runs a
 full competition and writes four tables plus a reproducibility manifest.
 

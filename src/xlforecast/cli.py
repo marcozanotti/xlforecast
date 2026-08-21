@@ -126,6 +126,7 @@ def run(
     n_windows: Annotated[int, typer.Option(help="CV windows.")] = 3,
     season_length: Annotated[int | None, typer.Option(help="Inferred when omitted.")] = None,
     out: Annotated[Path, typer.Option("--out", help="Output directory.")] = Path("xlf_out"),
+    n_jobs: Annotated[int, typer.Option(help="Parallel workers across series (FR-211).")] = 1,
 ) -> None:
     """Run a model competition and write four tables plus a manifest."""
     try:
@@ -142,7 +143,7 @@ def run(
             )
         )
         mapping = DataMapping(unique_id_col=unique_id_col, ds_col=ds_col, y_col=y_col)
-        result = run_from_path(path, request=request, mapping=mapping)
+        result = run_from_path(path, request=request, mapping=mapping, n_jobs=n_jobs)
     except XLForecastError as exc:
         # FS §4 error-presentation rule: name the fault, state the fix, never a traceback.
         typer.secho(exc.render(), fg=typer.colors.RED, err=True)

@@ -365,3 +365,45 @@ them, which is consistent.
 This does **not** re-validate NFR-01: that target is weekly data at `m=52` with 3 CV folds, where
 FR-201a's Fourier mode applies, and this run is monthly at `m=12` with a single origin. It is a
 real-data sanity check on the Phase 0 projection, not a replacement for it.
+
+---
+
+## 13. Phase 3 profiling — the optimisation we did not take
+
+`AutoARIMA` is **91% of run cost** on M3 monthly (0.60 CPU s/series at m=12). Four levers were
+measured on 250 real M3 monthly series, against **both** speed and accuracy:
+
+| configuration | CPU | speedup | MASE | vs baseline |
+|---|---:|---:|---:|---:|
+| baseline (current) | 151.2 s | 1.00× | 1.0416 | — |
+| `nmodels=20` | 113.3 s | 1.33× | 1.0436 | +0.20% |
+| `approximation=True` | 51.3 s | **2.95×** | 1.0759 | **+3.30%** |
+| `approximation=True, nmodels=20` | 39.9 s | 3.79× | 1.0594 | +1.71% |
+| `max_p/max_q=3` | 148.4 s | 1.02× | 1.0415 | −0.01% |
+
+**None were adopted.** `approximation=True` — which is what R's `auto.arima` does by default on
+longer series — buys nearly 3× for 3.3% worse MASE. That is a real trade, and there is no reason
+to make it: the Phase 0 projection puts a full NFR-01 run at 2.9 minutes against a 10-minute
+budget, so we are not against the limit. Trading accuracy for speed we do not need, in a product
+whose thesis is methodological rigour, is the wrong instinct.
+
+The measurements are recorded so the lever exists when the budget does bind — larger panels,
+more folds, or higher-frequency data.
+
+**What was adopted instead: parallelism (FR-211).** The adapter had `n_jobs` hard-coded to 1.
+Measured on 200 M3 monthly series:
+
+| `n_jobs` | wall | speedup | forecasts identical to serial |
+|---|---:|---:|---|
+| 1 | 165.4 s | 1.00× | (reference) |
+| 2 | 122.8 s | 1.35× | yes |
+| 4 | 60.9 s | **2.72×** | yes |
+| 8 | 69.9 s | 2.37× | yes |
+
+`n_jobs=4` gives essentially the same speedup as `approximation=True` **at zero accuracy cost**,
+because statsforecast parallelises across series and each series is fitted independently. That
+property is now a test rather than an assumption, and the worker count is recorded in
+`Manifest.thread_config` regardless.
+
+Note that 8 workers is *slower* than 4 here — process-spawn overhead against a 200-series
+workload — so the default stays 1 and the choice is the caller's (FR-211).

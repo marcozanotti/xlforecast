@@ -104,7 +104,9 @@ coverage (AC-307). Ensemble scores are computed on the same folds as their membe
 - Compare against the **published** Monash baselines, committed with explicit tolerances before
   the phase opens.
 - Profile and optimise the obvious hot paths, ranked by measured per-model `train + predict` CPU
-  seconds (FR-217) rather than by intuition about which models look expensive.
+  seconds (FR-217) rather than by intuition about which models look expensive. **Optimisations
+  are measured against accuracy, not only speed** — a faster leaderboard that is worse is not an
+  optimisation.
 - Write the public methodology page draft — if you cannot explain the leaderboard in writing,
   the design is wrong.
 

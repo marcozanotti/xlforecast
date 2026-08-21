@@ -82,6 +82,7 @@ def _run_one(
     season_length: int,
     origin: pd.Timestamp,
     fold_index: int | None,
+    n_jobs: int = 1,
 ) -> tuple[pl.DataFrame, ModelTiming]:
     from statsforecast import StatsForecast
 
@@ -101,7 +102,11 @@ def _run_one(
             axis=1,
         )
 
-    sf = StatsForecast(models=[model], freq=freq, n_jobs=1)
+    # FR-211. statsforecast parallelises across *series*, and each series is fitted
+    # independently, so forecasts are bit-identical across worker counts -- verified in
+    # tests/unit/engine/test_parallel.py. Speed here costs no accuracy, unlike the
+    # approximation lever measured in Phase 3 (2.95x faster, 3.3% worse MASE).
+    sf = StatsForecast(models=[model], freq=freq, n_jobs=n_jobs)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         with measure() as train_t:
@@ -145,6 +150,7 @@ def forecast_fold(
     freq: str,
     season_length: int,
     origin: pd.Timestamp,
+    n_jobs: int = 1,
 ) -> tuple[pl.DataFrame, list[ModelTiming]]:
     """Fit on the fold's training slice and predict its horizon."""
     train_pd = fold.train.select([ID, DS, Y]).to_pandas()  # convert once, at the boundary
@@ -158,6 +164,7 @@ def forecast_fold(
             season_length=season_length,
             origin=origin,
             fold_index=fold.index,
+            n_jobs=n_jobs,
         )
         frames.append(preds)
         timings.append(timing)
@@ -172,6 +179,7 @@ def forecast_full(
     freq: str,
     season_length: int,
     origin: pd.Timestamp,
+    n_jobs: int = 1,
 ) -> tuple[pl.DataFrame, list[ModelTiming]]:
     """Refit on full history for the delivered forecast (`fold_index=None`)."""
     train_pd = panel.select([ID, DS, Y]).to_pandas()
@@ -185,6 +193,7 @@ def forecast_full(
             season_length=season_length,
             origin=origin,
             fold_index=None,
+            n_jobs=n_jobs,
         )
         frames.append(preds)
         timings.append(timing)

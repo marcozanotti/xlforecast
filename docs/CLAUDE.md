@@ -16,6 +16,8 @@ Full specifications live in `docs/`:
 - `03-BUILD-PLAN.md` — phase order and gates
 - `04-SPEC-DECISIONS.md` — resolutions of spec conflicts; read it before touching schemas or `engine/`
 - `05-PHASE0-SPIKE.md` — measured cost per model; FR-216/NFR-01 are frozen against it
+- `06-METHODOLOGY.md` — the public methodology page. If a change makes this harder to write
+  honestly, that is the signal to stop and reconsider the change
 
 ---
 

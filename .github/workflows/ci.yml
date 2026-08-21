@@ -44,6 +44,7 @@ jobs:
           uv run coverage report --include="src/xlforecast/ingest/*"  --fail-under=85
           uv run coverage report --include="src/xlforecast/storage/*" --fail-under=85
           uv run coverage report --include="src/xlforecast/api/*"     --fail-under=85
+          uv run coverage report --include="src/xlforecast/worker/*"  --fail-under=85
           # NFR-10 names three modules at 100%. guardrail.py arrives in Phase 6 and adds
           # its line here when it lands.
           uv run coverage report --include="src/xlforecast/engine/folds.py"     --fail-under=100

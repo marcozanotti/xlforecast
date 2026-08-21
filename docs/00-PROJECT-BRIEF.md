@@ -124,9 +124,12 @@ specification made this ADR deliver the *appearance* of calibration rather than 
    calibrated only from folds ≠ *k*, and reported coverage is averaged over out-of-calibration
    folds. Final delivered bands still use all folds' residuals. Costs no additional model fits.
 2. *Symmetric additive bands on count data.* Absolute-residual half-widths put the lower bound
-   below zero on intermittent demand, where `y = 0` is then trivially covered and coverage becomes
-   meaningless — on exactly the series persona P1 owns. Bands are clipped to the series' observed
-   support, and coverage is reported separately for intermittent and smooth series.
+   below zero on intermittent demand — measured at 95.8% of points. Bands are clipped to the
+   series' observed support, which removes 21.6% of interval width.
+   *Amended again in Phase 2, after measurement:* clipping does **not** change coverage and cannot,
+   since no observation lies below zero to be excluded. The real pathology is one-sided
+   miscoverage — 0.00% lower tail against 15.62% upper on intermittent data — which the coverage
+   figure hides entirely and which is now reported separately (FR-307a/b).
 
 Known consequence to state on the methodology page: putting every model through one conformal
 procedure makes the probabilistic ranking track the point ranking closely, since each band is

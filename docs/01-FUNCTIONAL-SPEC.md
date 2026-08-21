@@ -133,7 +133,9 @@ asymmetry rather than silently confounded by it.
 | FR-304 | M | Where a model has native intervals (ARIMA, ETS), report them as a separate, clearly labelled column set. They are excluded from the ranked comparison. |
 | FR-305 | S | Support quantile output at arbitrary levels, not just symmetric intervals. |
 | FR-306 | C | Weighted/adaptive conformal for non-stationary series. |
-| FR-307 | M | **Support-aware bands.** Additive symmetric half-widths are clipped to the series' observed support — a non-negative series gets `lo = max(lo, 0)`. Unclipped, an intermittent series' lower bound sits below zero, every `y = 0` falls trivially inside the band, and reported coverage approaches 100% while meaning nothing. Because clipping makes coverage non-comparable between intermittent and smooth series, FR-303 reports the two classes separately, and the clip rate per series is recorded in diagnostics. |
+| FR-307 | M | **Support-aware bands.** Additive symmetric half-widths are clipped to the series' observed support — a non-negative series gets `lo = max(lo, 0)`. Measured on an intermittent panel: the unclipped lower bound sits below zero at **95.8%** of points and clipping removes **21.6%** of interval width. The clip rate per series is recorded in diagnostics. |
+| FR-307a | M | **Correction, established by measurement in Phase 2: clipping does not change coverage, and cannot.** No observation of a non-negative series lies below zero, so truncating the lower bound there never excludes a point that was previously inside — measured coverage is 80.7% clipped and 80.7% unclipped. The original rationale for FR-307 ("reported coverage approaches 100%") was wrong. Clipping buys **sharpness and interpretability**: a negative lower bound on unit demand is not a wider forecast, it is a nonsensical one. |
+| FR-307b | M | **One-sided miscoverage is the diagnostic that detects the real pathology.** With symmetric additive bands on intermittent data, **0.00%** of violations fall in the lower tail and **15.62%** in the upper, against a roughly balanced 10.2% / 5.5% on Gaussian data. The lower half of the interval does no work at all. This is invisible in the coverage figure — which reads ≈nominal either way — so `engine/conformal.py` reports both tails separately and `XLF_Diagnostics` shows them. A model whose miscoverage is entirely one-sided is not well calibrated, whatever its coverage says. |
 
 **AC-301:** On a synthetic panel with known noise distribution, **out-of-calibration**
 cross-conformal coverage of the 80% interval falls within [0.75, 0.85], and the equivalent
@@ -141,9 +143,16 @@ cross-conformal coverage of the 80% interval falls within [0.75, 0.85], and the 
 The second assertion is the point: it is the control that proves the first number is not a
 tautology. A mutation that reverts FR-302 to same-fold calibration must fail this AC.
 
-**AC-307:** On an intermittent panel, coverage is reported separately for intermittent and smooth
-series, and a test asserts that removing the FR-307 clip drives intermittent-series coverage above
-0.97 at nominal 0.80 — demonstrating that the unclipped number was meaningless.
+**AC-307** *(rewritten in Phase 2 — the original asserted something that cannot happen)*: on an
+intermittent panel, a test asserts that (a) clipping leaves coverage **unchanged** while reducing
+mean interval width by more than 10%, and (b) lower-tail miscoverage is ≈0 while upper-tail
+miscoverage exceeds 5%, against a Gaussian control where both tails are live.
+
+The original AC required that removing the clip "drives intermittent-series coverage above 0.97".
+It cannot: no observation of a non-negative series lies below zero, so the clip never changes
+whether a point is inside the interval. Measured, both figures are 0.807. An AC asserting an
+impossible effect fails permanently and tells you nothing about the property it was meant to
+protect.
 
 ### 3.4 Selection and ensembling (FR-4xx)
 

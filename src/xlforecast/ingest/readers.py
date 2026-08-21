@@ -60,17 +60,32 @@ def read_panel(path: str | Path, mapping: DataMapping) -> pl.DataFrame:
         )
 
     frame = raw.select([*wanted, *exog]).rename(wanted)
-    frame = frame.with_columns(
-        pl.col(ID).cast(pl.Utf8),
-        pl.col(DS).cast(pl.Datetime("us"), strict=False),
-        pl.col(Y).cast(pl.Float64, strict=False),
+    # Parse rather than cast where the column arrived as text: polars deprecates
+    # String -> Datetime casting and removes it in 2.0, and `str.to_datetime` also gives
+    # better diagnostics on a malformed column than a silent null.
+    ds_expr = (
+        pl.col(DS).str.to_datetime(time_unit="us", strict=False)
+        if frame.schema[DS] == pl.Utf8
+        else pl.col(DS).cast(pl.Datetime("us"), strict=False)
     )
-    if frame.get_column(DS).is_null().all():
-        raise IngestError(
-            f"no value in '{mapping.ds_col}' could be parsed as a date.",
-            fix="Check the date format, or pre-parse the column.",
-            column=mapping.ds_col,
+    unparseable = IngestError(
+        f"no value in '{mapping.ds_col}' could be parsed as a date.",
+        fix="Check the date format (ISO-8601 is safest), or pre-parse the column.",
+        column=mapping.ds_col,
+    )
+    try:
+        frame = frame.with_columns(
+            pl.col(ID).cast(pl.Utf8),
+            ds_expr,
+            pl.col(Y).cast(pl.Float64, strict=False),
         )
+    except pl.exceptions.PolarsError as exc:
+        # polars raises rather than nulling when it cannot infer a datetime format at all.
+        # FS §4's error rule wants the column named and a remedy stated, not a library
+        # traceback, so the failure is translated rather than propagated.
+        raise unparseable from exc
+    if frame.get_column(DS).is_null().all():
+        raise unparseable
     # Deliberately NOT sorted. FR-105 requires reporting non-monotonic timestamps, and
     # sorting here would silently repair the very fault the requirement asks us to name.
     # `validate` checks ordering; `canonical_sort` is applied afterwards.

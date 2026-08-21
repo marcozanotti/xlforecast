@@ -13,7 +13,11 @@ Specifications live in [`docs/`](docs/). Read `00-PROJECT-BRIEF.md` first, then 
 
 ## Status
 
-**Phase 0 complete — gate G0 passed.** CI green (lint, strict types, 127 tests, 100% coverage
+**Phase 1 complete — gates G0 and G1 passed.** 284 tests; engine 95% covered, ingest 92%,
+schemas 99%, `engine/folds.py` 100%. `uv run xlforecast run panel.csv --h 13 --freq W` runs a
+full competition and writes four tables plus a reproducibility manifest.
+
+**Phase 0 — gate G0 passed.** CI green (lint, strict types, 127 tests, 100% coverage
 on `schemas/`), the Nixtla stack imports cleanly in the container, and every contract in
 Technical Spec §4 round-trips through JSON without loss.
 

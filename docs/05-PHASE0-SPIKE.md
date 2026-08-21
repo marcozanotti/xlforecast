@@ -193,3 +193,38 @@ at the cost of needing a second image. Deferred to Phase 4, where cold start is 
 rather than hypothetical.
 
 **Phase 0 risk register: all items now closed or measured.**
+
+---
+
+## 9. Gate G1 — signed off
+
+| G1 clause | Status |
+|---|---|
+| Runs end-to-end on a CSV, emits four tables + manifest | ✅ `uv run xlforecast run panel.csv` |
+| `RunTiming` per model, parts accounting for the total | ✅ FR-217/217a, asserted |
+| Identical **test index** across families on a ragged panel | ✅ AC-205, with a control proving the libraries lack the property |
+| Effective training rows per family per fold recorded | ✅ AC-206 — the gap is exactly `support × max_lag` |
+| Byte-identical leaderboard twice, incl. shuffled input rows | ✅ NFR-02 under a recorded `thread_config` |
+| Seasonal random walk → nothing beats `SeasonalNaive` | ✅ AC-406 |
+| Pure random walk → `AutoARIMA` beats it | ✅ AC-406a |
+| Fold-constant series → `None`, never `NaN` | ✅ FR-214 |
+
+**284 tests. Coverage: engine 95%, ingest 92%, schemas 99%, `folds.py` 100%.** NFR-10's floors
+are enforced in CI rather than merely stated.
+
+### Two bugs the tests found, both in code that already "worked"
+
+**`infer_freq` distrusted monthly data.** Confidence was the share of consecutive gaps equal to
+the modal gap. Month-ends are 28, 29, 30 or 31 days apart, so a *perfectly regular* monthly panel
+scored **0.56** — the ingest layer would have spent its life suspicious of the most common
+business frequency there is. Confidence now measures alignment to the inferred calendar grid,
+which also sharpens the semantics: gaps are FR-106's problem and do not reduce confidence, while
+off-grid timestamps do and are rejected as `FREQ_MISMATCH`.
+
+**Unparseable dates raised a polars `ComputeError`.** `str.to_datetime` raises rather than nulling
+when it cannot infer a format at all, so a bad date column produced a library traceback instead of
+the named, remediable error FS §4 requires. Translated at the boundary.
+
+Neither surfaced in the end-to-end run. Both were found by writing tests for modules that were
+already exercised indirectly — which is the argument for item 3 of this list having been worth
+doing rather than declaring Phase 1 finished at the first green CLI run.

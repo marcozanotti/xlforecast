@@ -34,9 +34,17 @@ _CV2_CUT = 0.49
 def infer_freq(panel: pl.DataFrame) -> tuple[str, float]:
     """Infer the panel frequency, with a confidence (FR-104).
 
-    Confidence is the share of consecutive gaps equal to the modal gap, which is a more
-    useful signal than pandas' all-or-nothing `infer_freq`: a panel that is 98% weekly with
-    a few missing weeks should report "weekly, 0.98" and be gap-filled, not rejected.
+    Confidence is the share of observed timestamps that land on the inferred frequency's
+    calendar grid -- that is, it measures **alignment, not completeness**. A weekly panel
+    with missing weeks still scores 1.0, because every timestamp it does have is a valid
+    weekly one; the gaps are FR-106's problem and are gap-filled. A panel whose timestamps
+    fall between grid points scores below 1.0, and validation rejects those series with
+    `FREQ_MISMATCH`.
+
+    Measured against the grid rather than against gap equality because calendar offsets do
+    not have constant gaps: month-ends are 28, 29, 30 or 31 days apart, so a modal-gap
+    measure scores a *perfectly regular* monthly panel at about 0.56, and the ingest layer
+    would have spent its life distrusting the most common business frequency there is.
     """
     gaps = (
         panel.sort([ID, DS])
@@ -47,23 +55,37 @@ def infer_freq(panel: pl.DataFrame) -> tuple[str, float]:
     if gaps.is_empty():
         return "D", 0.0
 
-    modal = gaps.mode().sort()[0]
-    confidence = float((gaps == modal).sum() / gaps.len())
-    delta = pd.Timedelta(modal)
+    delta = pd.Timedelta(gaps.mode().sort()[0])
+    alias = _alias_for(delta)
+    return alias, _grid_confidence(panel, alias)
 
-    for alias, span in (("h", "1h"), ("D", "1D"), ("W", "7D")):
+
+def _alias_for(delta: pd.Timedelta) -> str:
+    for candidate, span in (("h", "1h"), ("D", "1D"), ("W", "7D")):
         if delta == pd.Timedelta(span):
-            return normalise_freq(alias), confidence
+            return normalise_freq(candidate)
     days = delta.days
     if 28 <= days <= 31:
-        return normalise_freq("ME"), confidence
+        return normalise_freq("ME")
     if 89 <= days <= 92:
-        return normalise_freq("QE"), confidence
+        return normalise_freq("QE")
     if 360 <= days <= 366:
-        return normalise_freq("YE"), confidence
+        return normalise_freq("YE")
     if days >= 1:
-        return f"{days}D", confidence
-    return f"{int(delta.total_seconds())}s", confidence
+        return f"{days}D"
+    return f"{int(delta.total_seconds())}s"
+
+
+def _grid_confidence(panel: pl.DataFrame, alias: str) -> float:
+    """Share of observed timestamps that fall on the inferred calendar grid."""
+    stamps = panel.get_column(DS).unique().to_pandas()
+    try:
+        grid = set(pd.date_range(start=stamps.min(), end=stamps.max(), freq=alias))
+    except (ValueError, TypeError):  # pragma: no cover - defensive
+        return 0.0
+    if not grid:
+        return 0.0
+    return float(sum(1 for s in stamps if s in grid) / len(stamps))
 
 
 def classify_intermittency(values: np.ndarray) -> tuple[IntermittencyClass, float, float]:

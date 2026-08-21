@@ -303,3 +303,65 @@ calibrated from every fold, unlike the scoring bands which each hold one out.
   model — right under `pooled`, wrong under `per_series`.
 
 **387 tests. `conformal.py`, `ensemble.py`, `folds.py`, `registry.py` at 100%; engine 96%.**
+
+---
+
+## 12. Gate G3 — signed off
+
+Benchmarked against the **Monash Time Series Forecasting Archive**'s published M3 baselines
+(Godahewa et al. 2021), not against our own prior work. Baselines and tolerances were committed
+before the phase opened, as the gate requires.
+
+### Results — mean MASE, single origin, 3,003 series
+
+| dataset | model | ours | published | delta |
+|---|---|---:|---:|---:|
+| M3 Yearly (645, h=6) | AutoETS | 2.695 | 2.860 | −5.8% |
+| | AutoARIMA | 2.882 | 3.417 | **−15.7%** ⚑ |
+| | DynOptTheta | 2.576 | 2.774 | −7.1% |
+| M3 Quarterly (756, h=8) | AutoETS | 1.143 | 1.170 | −2.3% |
+| | AutoARIMA | 1.191 | 1.240 | −3.9% |
+| | DynOptTheta | 1.126 | 1.117 | +0.8% |
+| M3 Monthly (1428, h=18) | AutoETS | 0.863 | 0.865 | −0.2% |
+| | AutoARIMA | 0.876 | 0.873 | +0.3% |
+| | DynOptTheta | 0.850 | 0.864 | −1.6% |
+
+**9 of 9 comparisons pass. Zero failures. One flagged as better-than-published.**
+
+M3 Other (174 series) was run for regression tracking but is excluded from the gate: the paper
+reports no baselines for it — the string "M3 Other" does not appear — and the series are undated,
+declaring neither `start_timestamp` nor `@frequency`.
+
+### On the flagged case
+
+`AutoARIMA` beats the archive by 15.7% on M3 Yearly, which trips the flag. Three things say it is
+real rather than a leak:
+
+1. **Monthly agrees to 0.3%.** The same harness, split and metric reproduce the published numbers
+   almost exactly on the largest dataset. A structural leak would not switch itself off.
+2. **The archive's own ARIMA is anomalous on yearly** — 3.417, *worse* than its SES at 3.167.
+   `auto.arima` is known to struggle on short yearly series (14–41 training points), so a
+   reimplementation beating it comfortably is unsurprising.
+3. **The split was verified directly**: train + test reconstructs every series exactly, every test
+   block is exactly `h`, and no test observation appears in any training window.
+
+### What makes the comparison trustworthy
+
+Two properties are asserted as tests rather than assumed, because either would silently invalidate
+every number above:
+
+- **Our MASE is the archive's MASE.** `utilsforecast.losses.mase` matches the paper's equation 2
+  to 1e-12 across seasonalities 1, 4 and 12, with the denominator taken over the training series
+  only. Had it differed, the deltas would have been measuring the metric, not the engine.
+- **The split is the archive's split.** Single origin, last `horizon` observations held out.
+
+### Measured cost on real data
+
+M3 Monthly, 1,428 series, one fit each: **943 s wall, AutoARIMA 91% of it** at 0.60 CPU s/series
+at `m=12`. For context, the Phase 0 synthetic spike measured 0.923 s/series for seasonal AutoARIMA
+at `m=52` and 0.297 s/series in FR-201a's Fourier mode. Real seasonal data at `m=12` sits between
+them, which is consistent.
+
+This does **not** re-validate NFR-01: that target is weekly data at `m=52` with 3 CV folds, where
+FR-201a's Fourier mode applies, and this run is monthly at `m=12` with a single origin. It is a
+real-data sanity check on the Phase 0 projection, not a replacement for it.

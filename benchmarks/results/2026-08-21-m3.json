@@ -1,0 +1,223 @@
+{
+  "results": {
+    "m3_yearly": {
+      "scores": {
+        "SeasonalNaive": {
+          "mase": 3.171710236867603,
+          "smape": 8.939945245826616
+        },
+        "HistoricAverage": {
+          "mase": 8.065090623223245,
+          "smape": 21.812592816343173
+        },
+        "AutoETS": {
+          "mase": 2.695410864354988,
+          "smape": 8.095116720250891
+        },
+        "AutoARIMA": {
+          "mase": 2.88238285068689,
+          "smape": 8.356574146025872
+        },
+        "DynamicOptimizedTheta": {
+          "mase": 2.5762334963942894,
+          "smape": 7.893429272848014
+        }
+      },
+      "cpu_seconds": {
+        "SeasonalNaive": 0.0171910000000004,
+        "HistoricAverage": 0.015200999999999354,
+        "AutoETS": 0.9347599999999998,
+        "AutoARIMA": 54.32068099999999,
+        "DynamicOptimizedTheta": 0.32452599999999165,
+        "_total_wall": 56.36602927199783
+      }
+    },
+    "m3_quarterly": {
+      "scores": {
+        "SeasonalNaive": {
+          "mase": 1.425343782033456,
+          "smape": 5.532565653132352
+        },
+        "HistoricAverage": {
+          "mase": 3.873907594351802,
+          "smape": 13.29117285159564
+        },
+        "AutoETS": {
+          "mase": 1.1434401032428574,
+          "smape": 4.723360170276975
+        },
+        "AutoARIMA": {
+          "mase": 1.1913836573866723,
+          "smape": 5.043514101688343
+        },
+        "DynamicOptimizedTheta": {
+          "mase": 1.125586011031358,
+          "smape": 4.66006619054571
+        }
+      },
+      "cpu_seconds": {
+        "SeasonalNaive": 0.02045700000000039,
+        "HistoricAverage": 0.01777099999999976,
+        "AutoETS": 15.185063,
+        "AutoARIMA": 137.486131,
+        "DynamicOptimizedTheta": 0.8214429999999879,
+        "_total_wall": 154.33707990299808
+      }
+    },
+    "m3_monthly": {
+      "scores": {
+        "SeasonalNaive": {
+          "mase": 1.146204572893103,
+          "smape": 8.619550765619643
+        },
+        "HistoricAverage": {
+          "mase": 2.2674679244903624,
+          "smape": 13.563521800494998
+        },
+        "AutoETS": {
+          "mase": 0.8633736325882773,
+          "smape": 7.082014801516257
+        },
+        "AutoARIMA": {
+          "mase": 0.8758443494747145,
+          "smape": 7.626125538078885
+        },
+        "DynamicOptimizedTheta": {
+          "mase": 0.8502342324032901,
+          "smape": 6.864749025640039
+        }
+      },
+      "cpu_seconds": {
+        "SeasonalNaive": 0.04141800000000018,
+        "HistoricAverage": 0.03718400000000077,
+        "AutoETS": 79.649983,
+        "AutoARIMA": 858.4063169999998,
+        "DynamicOptimizedTheta": 3.744912000000113,
+        "_total_wall": 942.993617139
+      }
+    },
+    "m3_other": {
+      "scores": {
+        "SeasonalNaive": {
+          "mase": 3.0890535091455513,
+          "smape": 3.1508031611050513
+        },
+        "HistoricAverage": {
+          "mase": 19.830305467915814,
+          "smape": 14.020577276564635
+        },
+        "AutoETS": {
+          "mase": 1.8014790994779772,
+          "smape": 2.1724366317371646
+        },
+        "AutoARIMA": {
+          "mase": 1.8523552013993057,
+          "smape": 2.2471815703758042
+        },
+        "DynamicOptimizedTheta": {
+          "mase": 1.922864736374279,
+          "smape": 2.2712738099001926
+        }
+      },
+      "cpu_seconds": {
+        "SeasonalNaive": 0.007363999999999926,
+        "HistoricAverage": 0.005743999999999971,
+        "AutoETS": 0.5500580000000004,
+        "AutoARIMA": 12.124678,
+        "DynamicOptimizedTheta": 0.1602069999999962,
+        "_total_wall": 13.605938833999971
+      }
+    }
+  },
+  "comparisons": [
+    {
+      "dataset": "m3_yearly",
+      "published_model": "ETS",
+      "our_model": "AutoETS",
+      "published_mase": 2.86,
+      "our_mase": 2.6954,
+      "delta_pct": -5.75,
+      "verdict": "pass"
+    },
+    {
+      "dataset": "m3_yearly",
+      "published_model": "ARIMA",
+      "our_model": "AutoARIMA",
+      "published_mase": 3.417,
+      "our_mase": 2.8824,
+      "delta_pct": -15.65,
+      "verdict": "better-than-published"
+    },
+    {
+      "dataset": "m3_yearly",
+      "published_model": "Theta",
+      "our_model": "DynamicOptimizedTheta",
+      "published_mase": 2.774,
+      "our_mase": 2.5762,
+      "delta_pct": -7.13,
+      "verdict": "pass"
+    },
+    {
+      "dataset": "m3_quarterly",
+      "published_model": "ETS",
+      "our_model": "AutoETS",
+      "published_mase": 1.17,
+      "our_mase": 1.1434,
+      "delta_pct": -2.27,
+      "verdict": "pass"
+    },
+    {
+      "dataset": "m3_quarterly",
+      "published_model": "ARIMA",
+      "our_model": "AutoARIMA",
+      "published_mase": 1.24,
+      "our_mase": 1.1914,
+      "delta_pct": -3.92,
+      "verdict": "pass"
+    },
+    {
+      "dataset": "m3_quarterly",
+      "published_model": "Theta",
+      "our_model": "DynamicOptimizedTheta",
+      "published_mase": 1.117,
+      "our_mase": 1.1256,
+      "delta_pct": 0.77,
+      "verdict": "pass"
+    },
+    {
+      "dataset": "m3_monthly",
+      "published_model": "ETS",
+      "our_model": "AutoETS",
+      "published_mase": 0.865,
+      "our_mase": 0.8634,
+      "delta_pct": -0.19,
+      "verdict": "pass"
+    },
+    {
+      "dataset": "m3_monthly",
+      "published_model": "ARIMA",
+      "our_model": "AutoARIMA",
+      "published_mase": 0.873,
+      "our_mase": 0.8758,
+      "delta_pct": 0.33,
+      "verdict": "pass"
+    },
+    {
+      "dataset": "m3_monthly",
+      "published_model": "Theta",
+      "our_model": "DynamicOptimizedTheta",
+      "published_mase": 0.864,
+      "our_mase": 0.8502,
+      "delta_pct": -1.59,
+      "verdict": "pass"
+    }
+  ],
+  "run": {
+    "date": "2026-08-21",
+    "engine_version": "0.1.0",
+    "python": "3.11.16",
+    "mode": "comparability (single origin, last `horizon` held out) -- matches the Monash protocol",
+    "note": "Not a cross-validated run. G1 and G2 cover the fold machinery, conformal layer and ensembling.",
+    "commit": "a3d0628"
+  }
+}

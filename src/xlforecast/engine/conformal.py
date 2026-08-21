@@ -203,6 +203,7 @@ def calibrate(
             fallback.add(uid)
 
     return ConformalBands(
+        model=model,
         level=level,
         half_width=half_width,
         pooled_fallback=fallback,
@@ -354,3 +355,85 @@ def interval_width(
     if scored.is_empty():
         return math.nan
     return float(scored.select((pl.col("hi") - pl.col("lo")).mean()).item())
+
+
+def quantile_levels(levels: list[int]) -> np.ndarray:
+    """The quantile grid implied by a set of symmetric interval levels (FR-208).
+
+    Level 80 contributes the 0.10 and 0.90 quantiles, level 95 the 0.025 and 0.975; the
+    median is always present because it is the point forecast. So `[80, 95]` gives a
+    five-point grid.
+
+    The grid goes in the manifest, because `scaled_crps` is a quantile-grid approximation:
+    a run at `levels=[80, 95]` and one at `[50, 80, 95]` produce CRPS values that are **not
+    comparable**, and a leaderboard that hides that is quietly dishonest.
+    """
+    qs = {0.5}
+    for level in levels:
+        alpha = 1.0 - level / 100.0
+        qs.add(round(alpha / 2.0, 6))
+        qs.add(round(1.0 - alpha / 2.0, 6))
+    return np.array(sorted(qs), dtype=float)
+
+
+def quantile_frame(
+    residuals: pl.DataFrame,
+    *,
+    model: str,
+    levels: list[int],
+    support: Support,
+    min_residuals: int = DEFAULT_MIN_RESIDUALS,
+    cross_conformal: bool = True,
+) -> tuple[pl.DataFrame, list[str]]:
+    """Per-point quantile values for one model, for probabilistic scoring.
+
+    With `cross_conformal=True` each fold is scored against a band built from the other
+    folds (FR-302), so the CRPS a model earns is subject to the same held-out discipline as
+    its coverage. Returns the frame and the ordered quantile column names.
+    """
+    grid = quantile_levels(levels)
+    columns = [f"q{q:.4f}" for q in grid]
+    subset = residuals.filter(pl.col("model") == model)
+    if subset.is_empty():
+        return subset, columns
+
+    folds = frozenset(subset.get_column("fold_index").unique().to_list())
+    parts = []
+    for fold_index in sorted(folds):
+        exclude = frozenset({fold_index}) if cross_conformal else frozenset()
+        slice_ = subset.filter(pl.col("fold_index") == fold_index)
+        widths: dict[int, ConformalBands] = {
+            level: calibrate(
+                residuals,
+                model=model,
+                level=level,
+                exclude_folds=exclude,
+                min_residuals=min_residuals,
+                all_folds=folds,
+            )
+            for level in levels
+        }
+        frame = slice_.select([ID, DS, Y, "y_hat", "fold_index", "horizon_step"])
+        lower = pl.DataFrame(
+            {ID: list(support), "support_lo": [v[0] for v in support.values()]},
+            schema={ID: pl.Utf8, "support_lo": pl.Float64},
+        )
+        frame = frame.join(lower, on=ID, how="left")
+        exprs = []
+        for q, name in zip(grid, columns, strict=True):
+            if q == 0.5:
+                exprs.append(pl.col("y_hat").alias(name))
+                continue
+            level = round((1 - 2 * min(q, 1 - q)) * 100)
+            band = widths[level]
+            hw = pl.col(ID).replace_strict(band.half_width, default=None).cast(pl.Float64)
+            offset = pl.col("y_hat") + (hw if q > 0.5 else -hw)
+            exprs.append(
+                (
+                    offset
+                    if q > 0.5
+                    else pl.max_horizontal(offset, pl.col("support_lo").fill_null(-math.inf))
+                ).alias(name)
+            )
+        parts.append(frame.with_columns(exprs).drop("support_lo"))
+    return pl.concat(parts), columns

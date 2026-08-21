@@ -34,6 +34,45 @@ def _leaderboard_frame(result: RunResult) -> pl.DataFrame:
     return frame.drop("coverage", strict=False)
 
 
+def _forecast_wide(result: RunResult) -> pl.DataFrame:
+    """`XLF_Forecast` -- one row per series per horizon step, for charting (FS §5).
+
+    Interval columns are generated per requested level rather than hard-coded to 80/95: the
+    original layout could not express `levels=[50, 80, 95]` at all. Column order follows
+    `sorted(levels)` so the sheet is deterministic for the golden tests.
+    """
+    rows = [r.model_dump() for r in result.forecast.rows]
+    if not rows:
+        return pl.DataFrame()
+
+    frame = pl.DataFrame(rows, infer_schema_length=None)
+    # One model per series: whichever selection chose. Falls back to the top-ranked model
+    # only when nothing was marked, which under `pooled` is the same answer.
+    chosen = {r.unique_id: r.model for r in result.leaderboard.rows if r.selected and r.unique_id}
+    default = next(
+        (r.model for r in result.leaderboard.rows if r.scope == "panel" and r.selected),
+        result.leaderboard.rows[0].model if result.leaderboard.rows else "",
+    )
+    frame = frame.filter(
+        pl.col("model") == pl.col("unique_id").replace_strict(chosen, default=default)
+    )
+
+    point = frame.filter(pl.col("quantity") == "point").select(
+        ["unique_id", "ds", "model", pl.col("value").alias("y_hat")]
+    )
+    out = point
+    for level in sorted(result.forecast.levels):
+        for quantity in ("lo", "hi"):
+            band = frame.filter(
+                (pl.col("quantity") == quantity) & (pl.col("level") == level)
+            ).select(["unique_id", "ds", pl.col("value").alias(f"y_hat_{quantity}_{level}")])
+            if not band.is_empty():
+                out = out.join(band, on=["unique_id", "ds"], how="left")
+
+    ordered = [c for c in out.columns if c != "model"] + ["model"]
+    return out.select(ordered).sort(["unique_id", "ds"])
+
+
 def _write_outputs(result: RunResult, out: Path) -> dict[str, Path]:
     out.mkdir(parents=True, exist_ok=True)
     written: dict[str, Path] = {}
@@ -46,19 +85,8 @@ def _write_outputs(result: RunResult, out: Path) -> dict[str, Path]:
     written["XLF_Forecast_Long"] = out / "XLF_Forecast_Long.csv"
     pl.DataFrame(long_rows, infer_schema_length=None).write_csv(written["XLF_Forecast_Long"])
 
-    selected = {r.unique_id: r.model for r in result.leaderboard.rows if r.selected}
-    winner = result.leaderboard.rows[0].model if result.leaderboard.rows else None
-    wide = pl.DataFrame(long_rows, infer_schema_length=None)
-    if not wide.is_empty():
-        wide = (
-            wide.filter(
-                pl.col("model") == pl.col("unique_id").replace_strict(selected, default=winner)
-            )
-            .select(["unique_id", "ds", "value", "model"])
-            .rename({"value": "y_hat"})
-        )
     written["XLF_Forecast"] = out / "XLF_Forecast.csv"
-    wide.write_csv(written["XLF_Forecast"])
+    _forecast_wide(result).write_csv(written["XLF_Forecast"])
 
     diagnostics = pl.DataFrame(
         [

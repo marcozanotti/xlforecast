@@ -429,3 +429,57 @@ class TestEmptyAndDegenerateInputs:
                 min_residuals=10_000_000,
             )
         )
+
+
+class TestQuantileFrame:
+    """FR-208 -- the quantile grid that probabilistic scoring consumes."""
+
+    def test_grid_is_derived_from_the_requested_levels(self):
+        assert list(conformal.quantile_levels([80, 95])) == [0.025, 0.1, 0.5, 0.9, 0.975]
+        assert list(conformal.quantile_levels([80])) == [0.1, 0.5, 0.9]
+
+    def test_the_median_is_always_present_because_it_is_the_point_forecast(self):
+        for levels in ([50], [80, 95], [10, 50, 90, 99]):
+            assert 0.5 in conformal.quantile_levels(levels)
+
+    def test_quantiles_are_monotone_across_the_grid(self, gaussian_residuals):
+        residuals, support = gaussian_residuals
+        frame, columns = conformal.quantile_frame(
+            residuals,
+            model="SeasonalNaive",
+            levels=[80, 95],
+            support=support,
+            min_residuals=10,
+        )
+        values = frame.select(columns).to_numpy()
+        assert (np.diff(values, axis=1) >= -1e-9).all(), "quantile crossing"
+
+    def test_the_median_column_is_the_point_forecast(self, gaussian_residuals):
+        residuals, support = gaussian_residuals
+        frame, _ = conformal.quantile_frame(
+            residuals, model="SeasonalNaive", levels=[80], support=support, min_residuals=10
+        )
+        assert frame.get_column("q0.5000").to_list() == frame.get_column("y_hat").to_list()
+
+    def test_an_unknown_model_yields_an_empty_frame_with_the_column_names(self, gaussian_residuals):
+        """The columns are still returned so a caller can build an empty result without
+        special-casing the absence."""
+        residuals, support = gaussian_residuals
+        frame, columns = conformal.quantile_frame(
+            residuals, model="NotFitted", levels=[80, 95], support=support
+        )
+        assert frame.is_empty()
+        assert columns == ["q0.0250", "q0.1000", "q0.5000", "q0.9000", "q0.9750"]
+
+    def test_lower_quantiles_respect_the_series_support(self):
+        """FR-307 applies to the quantile grid too, not only to the reported band."""
+        panel = intermittent_panel()
+        residuals, _ = residuals_for(panel, ["HistoricAverage"])
+        frame, columns = conformal.quantile_frame(
+            residuals,
+            model="HistoricAverage",
+            levels=[80, 95],
+            support=series_support(panel),
+            min_residuals=10,
+        )
+        assert (frame.get_column(columns[0]).to_numpy() >= 0).all()

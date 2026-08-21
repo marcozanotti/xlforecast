@@ -268,3 +268,38 @@ reader should be able to tell a strong result from a structurally weak one, so
 Cross-conformal also needs *more* residuals than in-calibration, since each fold's band is
 built from a strictly smaller pool. `min_residuals` therefore bites harder here than its value
 suggests.
+
+
+---
+
+## 11. Phase 2 completion — probabilistic scoring and delivered intervals
+
+The two items left open at G2 sign-off are done.
+
+**`scaled_crps` is a leaderboard column.** Scored cross-conformally, so the probabilistic
+figure is held to the same held-out discipline as coverage. The quantile grid travels in
+`Manifest.crps_quantiles` — `[80, 95]` gives a five-point grid, and a run at `[50, 80, 95]`
+gives seven, so the two are **not CRPS-comparable**. A leaderboard that hid that would be
+quietly dishonest.
+
+Confirmed in passing: CRPS and MASE rank the models identically. That is the expected
+consequence of ADR-006 — every band is `point ± q(that model's own residuals)`, so the
+probabilistic ranking largely tracks the point ranking. CRPS earns its place by pricing
+interval *width*, not by reordering. The methodology page must say so rather than let a
+reader discover it.
+
+**The delivered forecast is banded.** `XLF_Forecast` now carries `y_hat_lo_L`/`y_hat_hi_L`
+per requested level, generated from `sorted(levels)` rather than hard-coded to 80/95 — the
+original layout could not express `levels=[50, 80, 95]` at all. Delivered bands are
+calibrated from every fold, unlike the scoring bands which each hold one out.
+
+**Two gaps found while wiring, both structural rather than arithmetic:**
+
+- `ConformalBands` had no `model` field. Half-widths are keyed by series, so two models'
+  bands at the same level were indistinguishable and a lookup returned whichever came first.
+  Silent, and wrong in a way no test on a single model would have caught.
+- `select()` ran but its result never reached the leaderboard rows. `selected` drives which
+  model's forecast is written to `XLF_Forecast`, so the sheet fell back to the top-ranked
+  model — right under `pooled`, wrong under `per_series`.
+
+**387 tests. `conformal.py`, `ensemble.py`, `folds.py`, `registry.py` at 100%; engine 96%.**

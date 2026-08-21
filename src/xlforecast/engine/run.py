@@ -16,6 +16,7 @@ intermittency (FR-106).
 
 from __future__ import annotations
 
+import math
 import platform
 import time
 import uuid
@@ -25,6 +26,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Literal
 
+import numpy as np
 import polars as pl
 
 from xlforecast import __version__
@@ -32,10 +34,15 @@ from xlforecast.engine import conformal as conformal_layer
 from xlforecast.engine import local as local_family
 from xlforecast.engine import ml as ml_family
 from xlforecast.engine.ensemble import EnsemblePlan, combine_point, ensemble_name, lofo_weights
-from xlforecast.engine.evaluate import build_leaderboard, score_fold
+from xlforecast.engine.evaluate import (
+    PROB_METRIC,
+    build_leaderboard,
+    score_fold,
+    score_probabilistic,
+)
 from xlforecast.engine.folds import make_folds
 from xlforecast.engine.registry import is_ml
-from xlforecast.engine.select import select
+from xlforecast.engine.select import Selection, select
 from xlforecast.engine.timing import measure
 from xlforecast.ingest.profile import profile_panel
 from xlforecast.ingest.readers import gap_fill, read_panel, split_future_rows
@@ -49,6 +56,7 @@ from xlforecast.schemas.results import (
     FoldScore,
     ForecastFrame,
     ForecastRow,
+    Leaderboard,
     Manifest,
     ModelTiming,
     RunResult,
@@ -254,14 +262,12 @@ def run_from_frame(
             )
         overhead.add("evaluate", t.cpu)
 
-    with measure() as t:
-        leaderboard = build_leaderboard(fold_scores, models=scored_models)
-    overhead.add("evaluate", t.cpu)
-
-    # Conformal calibration and its diagnostics (FR-301/302/303/307).
+    # Conformal calibration precedes the leaderboard, because probabilistic scoring is an
+    # input to it (FR-208) rather than an annotation on it.
     with measure() as t:
         residuals = conformal_layer.collect_residuals(folds, fold_predictions)
         support = conformal_layer.series_support(panel)
+        grid = conformal_layer.quantile_levels(resolved.levels)
         calibration = _calibrate_all(
             residuals,
             models=scored_models,
@@ -285,6 +291,24 @@ def run_from_frame(
         )
     overhead.add("conformal", t.cpu)
 
+    # FR-208: scaled CRPS, scored cross-conformally so the probabilistic figure is held to
+    # the same discipline as coverage.
+    with measure() as t:
+        if resolved.conformal:
+            fold_scores = _attach_crps(
+                fold_scores,
+                residuals,
+                models=scored_models,
+                levels=resolved.levels,
+                support=support,
+                grid=grid,
+            )
+    overhead.add("evaluate", t.cpu)
+
+    with measure() as t:
+        leaderboard = build_leaderboard(fold_scores, models=scored_models)
+    overhead.add("evaluate", t.cpu)
+
     with measure() as t:
         selection = select(
             fold_scores,
@@ -292,6 +316,7 @@ def run_from_frame(
             n_windows=resolved.n_windows,
             any_beat_baseline=leaderboard.any_beat_baseline,
         )
+        leaderboard = _apply_selection(leaderboard, selection)
     overhead.add("select", t.cpu)
 
     # Refit on full history for the delivered forecast.
@@ -320,21 +345,62 @@ def run_from_frame(
         timings.extend(t_ml)
 
     with measure() as t:
-        final = pl.concat(final_frames).sort([ID, DS, "model"])
-        forecast = ForecastFrame(
-            rows=[
-                ForecastRow(
-                    unique_id=r[ID],
-                    ds=str(r[DS]),
-                    model=r["model"],
-                    quantity="point",
-                    level=None,
-                    value=float(r["y_hat"]),
-                )
-                for r in final.iter_rows(named=True)
-            ],
-            levels=resolved.levels,
-        )
+        final = pl.concat(final_frames)
+        if plan is not None:
+            weights, _ = lofo_weights(fold_scores, plan=plan, exclude_fold=None)
+            ensemble_final, _ = combine_point(final, plan=plan, weights=weights)
+            final = pl.concat([final, ensemble_final])
+            ensemble_weights[None] = weights
+        final = final.sort([ID, DS, "model"])
+
+        rows: list[ForecastRow] = [
+            ForecastRow(
+                unique_id=r[ID],
+                ds=str(r[DS]),
+                model=r["model"],
+                quantity="point",
+                level=None,
+                value=float(r["y_hat"]),
+            )
+            for r in final.iter_rows(named=True)
+        ]
+        # FR-301: the delivered band is calibrated from every fold, unlike the scoring bands
+        # which each hold one out.
+        if resolved.conformal:
+            for model in scored_models:
+                for level in resolved.levels:
+                    band = next((b for b in bands if b.level == level and b.model == model), None)
+                    if band is None:
+                        continue
+                    slice_ = final.filter(pl.col("model") == model)
+                    if slice_.is_empty():
+                        continue
+                    banded, clip_rates = conformal_layer.apply_bands(slice_, band, support)
+                    for r in banded.iter_rows(named=True):
+                        if r["half_width"] is None or math.isnan(r["half_width"]):
+                            continue
+                        rows.append(
+                            ForecastRow(
+                                unique_id=r[ID],
+                                ds=str(r[DS]),
+                                model=r["model"],
+                                quantity="lo",
+                                level=level,
+                                value=float(r["lo"]),
+                            )
+                        )
+                        rows.append(
+                            ForecastRow(
+                                unique_id=r[ID],
+                                ds=str(r[DS]),
+                                model=r["model"],
+                                quantity="hi",
+                                level=level,
+                                value=float(r["hi"]),
+                            )
+                        )
+                    del clip_rates
+        forecast = ForecastFrame(rows=rows, levels=resolved.levels)
     overhead.add("persist", t.cpu)
 
     manifest = Manifest(
@@ -350,7 +416,7 @@ def run_from_frame(
         excluded_series=report.excluded,
         autoarima_mode=resolved.autoarima,
         ets_mode=resolved.ets,
-        crps_quantiles=[],  # Phase 2
+        crps_quantiles=[float(q) for q in grid] if resolved.conformal else [],
         ensemble_params={
             "method": plan.method if plan else "none",
             "prob_method": resolved.ensemble_prob_method,
@@ -508,3 +574,68 @@ def _finite(value: float) -> float | None:
     import math
 
     return None if value is None or math.isnan(value) or math.isinf(value) else float(value)
+
+
+def _attach_crps(
+    fold_scores: list[FoldScore],
+    residuals: pl.DataFrame,
+    *,
+    models: list[str],
+    levels: list[int],
+    support: conformal_layer.Support,
+    grid: np.ndarray,
+) -> list[FoldScore]:
+    """Merge scaled CRPS into the existing per-fold scores (FR-208).
+
+    `FoldScore` is frozen, so this rebuilds rather than mutates -- which is the point: a
+    score that could be edited after the fact is not a record of anything.
+    """
+    by_model: dict[str, dict[tuple[int, str], float | None]] = {}
+    for model in models:
+        quantiles, columns = conformal_layer.quantile_frame(
+            residuals, model=model, levels=levels, support=support
+        )
+        if quantiles.is_empty():
+            continue
+        by_model[model] = score_probabilistic(quantiles, columns=columns, grid=grid)
+
+    updated: list[FoldScore] = []
+    for score in fold_scores:
+        lookup = by_model.get(score.model)
+        value = (
+            lookup.get((score.fold_index, score.unique_id))
+            if lookup and score.unique_id is not None
+            else None
+        )
+        updated.append(score.model_copy(update={"metrics": {**score.metrics, PROB_METRIC: value}}))
+    return updated
+
+
+def _apply_selection(leaderboard: Leaderboard, selection: Selection) -> Leaderboard:
+    """Mark the selected rows and attach FR-408's bias disclosure.
+
+    `selected` drives which model's forecast is written to `XLF_Forecast`, so a leaderboard
+    that computes a selection without recording it would silently fall back to the top-ranked
+    model -- which is right under `pooled` and wrong under `per_series`.
+
+    `selection_biased` and `selected_lofo_score` travel with the row because the selected
+    model's own score is an argmin over the folds it is scored on. Reporting it unqualified
+    would let success criterion #1 be satisfied by selection bias alone.
+    """
+    rows = []
+    for row in leaderboard.rows:
+        chosen = (
+            selection.per_series.get(row.unique_id) == row.model
+            if row.scope == "series" and row.unique_id is not None
+            else row.model == selection.panel_winner
+        )
+        rows.append(
+            row.model_copy(
+                update={
+                    "selected": chosen,
+                    "selection_biased": chosen and selection.biased,
+                    "selected_lofo_score": selection.lofo_score if chosen else None,
+                }
+            )
+        )
+    return leaderboard.model_copy(update={"rows": rows})

@@ -173,3 +173,84 @@ class TestReproducibilityStillHolds:
         assert [c.model_dump() for c in first.calibration] == [
             c.model_dump() for c in second.calibration
         ]
+
+
+class TestProbabilisticScoring:
+    """FR-208 -- scaled CRPS in the leaderboard, with its grid in the manifest."""
+
+    def test_every_ranked_model_carries_a_crps(self, result):
+        for row in result.leaderboard.rows:
+            if row.scope == "panel":
+                assert row.scaled_crps is not None, row.model
+
+    def test_the_quantile_grid_is_recorded(self, result):
+        """A run at levels=[80,95] is not CRPS-comparable with one at [50,80,95], so the
+        grid travels with the result rather than being implied by it."""
+        assert result.manifest.crps_quantiles == [0.025, 0.1, 0.5, 0.9, 0.975]
+
+    def test_crps_and_mase_broadly_agree(self, result):
+        """Expected under ADR-006, and worth stating: every model's band is
+        `point ± q(its own residuals)`, so the probabilistic ranking largely tracks the
+        point ranking. CRPS earns its place by pricing interval width, not by reordering
+        the leaderboard -- and the methodology page has to say so rather than let a reader
+        discover it."""
+        panel = [r for r in result.leaderboard.rows if r.scope == "panel"]
+        by_mase = [r.model for r in sorted(panel, key=lambda r: r.mase or 9e9)]
+        by_crps = [r.model for r in sorted(panel, key=lambda r: r.scaled_crps or 9e9)]
+        assert by_mase[0] == by_crps[0]
+
+    def test_crps_is_absent_when_conformal_is_disabled(self):
+        """No bands, no probabilistic score -- and `None` says that plainly."""
+        request = ForecastRequest(
+            h=8,
+            freq="ME",
+            n_windows=2,
+            models=["SeasonalNaive", "HistoricAverage"],
+            ensemble="none",
+            conformal=False,
+        )
+        run = run_from_frame(
+            known_noise_panel(n_series=4, n_obs=120),
+            request=request,
+            mapping=MAPPING,
+            job_id="nocal",
+        )
+        assert run.manifest.crps_quantiles == []
+        assert all(r.scaled_crps is None for r in run.leaderboard.rows)
+
+
+class TestDeliveredIntervals:
+    """FR-301 -- the forecast that reaches the user is banded."""
+
+    def test_bands_are_calibrated_from_every_fold(self, result):
+        """Unlike the scoring bands, which each hold one fold out (FR-302)."""
+        folds = set(range(len(result.manifest.cutoffs)))
+        for band in result.bands:
+            assert set(band.calibrated_from_folds) == folds
+
+    def test_each_band_records_which_model_it_belongs_to(self, result):
+        """Half-widths are keyed by series, so without this a list of bands is ambiguous
+        and a lookup silently returns whichever model came first."""
+        assert all(b.model for b in result.bands)
+        assert len({(b.model, b.level) for b in result.bands}) == len(result.bands)
+
+    def test_lower_bounds_respect_the_series_support(self, result):
+        """FR-307 -- clipped, so a non-negative series never gets a negative lower bound."""
+        assert all(r.value >= 0 for r in result.forecast.rows if r.quantity == "lo")
+
+
+class TestSelectionReachesTheLeaderboard:
+    def test_exactly_one_model_is_selected_per_series(self, result):
+        by_series: dict[str, list[str]] = {}
+        for row in result.leaderboard.rows:
+            if row.scope == "series" and row.selected and row.unique_id:
+                by_series.setdefault(row.unique_id, []).append(row.model)
+        assert by_series
+        assert all(len(v) == 1 for v in by_series.values())
+
+    def test_the_selected_row_discloses_its_bias(self, result):
+        """FR-408 -- an argmin's own score is not an unbiased estimate of its accuracy."""
+        selected = [r for r in result.leaderboard.rows if r.selected and r.scope == "series"]
+        assert selected
+        assert all(r.selection_biased for r in selected)
+        assert any(r.selected_lofo_score is not None for r in selected)

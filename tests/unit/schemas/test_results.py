@@ -83,17 +83,17 @@ class TestConformalBands:
     """FR-302 -- cross-conformal provenance must be recorded."""
 
     def test_bands_record_which_folds_calibrated_them(self):
-        b = ConformalBands(level=80, calibrated_from_folds=[0, 2])
+        b = ConformalBands(model="SeasonalNaive", level=80, calibrated_from_folds=[0, 2])
         assert b.calibrated_from_folds == [0, 2]
 
     def test_empty_provenance_is_representable_so_a_test_can_catch_it(self):
         """A band calibrated from every fold and then scored on one of them reports nominal
         coverage by construction -- the defect ADR-006 was amended to prevent. The field
         exists so that condition is assertable rather than invisible."""
-        assert ConformalBands(level=80).calibrated_from_folds == []
+        assert ConformalBands(model="SeasonalNaive", level=80).calibrated_from_folds == []
 
     def test_pooled_fallback_set_round_trips(self):
-        b = ConformalBands(level=80, pooled_fallback={"A", "B"})
+        b = ConformalBands(model="SeasonalNaive", level=80, pooled_fallback={"A", "B"})
         assert ConformalBands.model_validate_json(b.model_dump_json()).pooled_fallback == {"A", "B"}
 
 

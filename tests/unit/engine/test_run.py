@@ -77,9 +77,37 @@ class TestEndToEnd:
         assert m.package_versions["statsforecast"]
 
     def test_forecast_covers_every_model_and_the_full_horizon(self, seasonal_result):
-        frame = pl.DataFrame([r.model_dump() for r in seasonal_result.forecast.rows])
-        per_model = frame.group_by("model").len()
-        assert set(per_model.get_column("len").to_list()) == {4 * 13}
+        from collections import Counter
+
+        points = Counter(r.model for r in seasonal_result.forecast.rows if r.quantity == "point")
+        assert set(points.values()) == {4 * 13}, "4 series x 13 horizon steps per model"
+
+    def test_every_point_forecast_carries_its_intervals(self, seasonal_result):
+        """FR-301 -- the delivered forecast is banded, not bare. Every point gets a lo and a
+        hi at every requested level."""
+        from collections import Counter
+
+        by_quantity = Counter(r.quantity for r in seasonal_result.forecast.rows)
+        levels = seasonal_result.forecast.levels
+        assert by_quantity["lo"] == by_quantity["point"] * len(levels)
+        assert by_quantity["hi"] == by_quantity["point"] * len(levels)
+
+    def test_intervals_nest_by_level(self, seasonal_result):
+        """A 95% interval must contain the 80%, which must contain the point."""
+        keyed: dict[tuple[str, str, str], dict[tuple[str, int | None], float]] = {}
+        for row in seasonal_result.forecast.rows:
+            keyed.setdefault((row.unique_id, row.ds, row.model), {})[(row.quantity, row.level)] = (
+                row.value
+            )
+        checked = 0
+        for values in keyed.values():
+            point = values.get(("point", None))
+            if point is None or ("lo", 95) not in values:
+                continue
+            assert values[("lo", 95)] <= values[("lo", 80)] <= point
+            assert point <= values[("hi", 80)] <= values[("hi", 95)]
+            checked += 1
+        assert checked > 0, "no banded points found to check"
 
     def test_every_model_is_scored_on_every_fold(self, seasonal_result):
         for row in seasonal_result.leaderboard.rows:

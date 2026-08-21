@@ -18,6 +18,7 @@ import math
 import warnings
 from functools import partial
 
+import numpy as np
 import polars as pl
 
 from xlforecast.engine.folds import Fold
@@ -26,9 +27,21 @@ from xlforecast.schemas.enums import Family, InformationSet
 from xlforecast.schemas.registry import MODEL_REGISTRY
 from xlforecast.schemas.results import FoldScore, Leaderboard, LeaderboardRow
 
-__all__ = ["METRICS", "build_leaderboard", "score_fold"]
+__all__ = [
+    "ALL_METRICS",
+    "METRICS",
+    "PROB_METRIC",
+    "build_leaderboard",
+    "score_fold",
+    "score_probabilistic",
+]
 
 METRICS = ("mase", "rmsse", "mae", "rmse", "smape")
+#: Probabilistic metric, added once conformal bands exist (Phase 2). Aggregated alongside
+#: the point metrics but kept separate in name, because it is absent when `conformal=False`
+#: and because its value depends on the quantile grid recorded in the manifest.
+PROB_METRIC = "scaled_crps"
+ALL_METRICS = (*METRICS, PROB_METRIC)
 
 BASELINE = "SeasonalNaive"
 INCUMBENT = "WindowAverage"
@@ -131,13 +144,13 @@ def build_leaderboard(
     for score in fold_scores:
         if score.unique_id is None:
             continue
-        bucket = collected.setdefault((score.model, score.unique_id), {m: [] for m in METRICS})
-        for metric in METRICS:
+        bucket = collected.setdefault((score.model, score.unique_id), {m: [] for m in ALL_METRICS})
+        for metric in ALL_METRICS:
             bucket[metric].append(score.metrics.get(metric))
         n_folds.setdefault(score.model, set()).add(score.fold_index)
 
     per_series: dict[tuple[str, str], dict[str, float | None]] = {
-        key: {m: _mean(vals[m]) for m in METRICS} for key, vals in collected.items()
+        key: {m: _mean(vals[m]) for m in ALL_METRICS} for key, vals in collected.items()
     }
 
     scored_by_model: dict[str, set[str]] = {}
@@ -156,7 +169,7 @@ def build_leaderboard(
             ]
         )
 
-    panel_values = {m: {k: panel_metric(m, k) for k in METRICS} for m in ranked}
+    panel_values = {m: {k: panel_metric(m, k) for k in ALL_METRICS} for m in ranked}
 
     def sort_key(model: str) -> float:
         value = panel_values[model].get(rank_metric)
@@ -192,6 +205,7 @@ def build_leaderboard(
                 mae=values["mae"],
                 rmse=values["rmse"],
                 smape=values["smape"],
+                scaled_crps=values[PROB_METRIC],
             )
         )
         for uid in sorted(scored_by_model[model]):
@@ -212,6 +226,7 @@ def build_leaderboard(
                     mae=series_values["mae"],
                     rmse=series_values["rmse"],
                     smape=series_values["smape"],
+                    scaled_crps=series_values[PROB_METRIC],
                 )
             )
 
@@ -226,3 +241,37 @@ def build_leaderboard(
 
     beat = any(beats_baseline(m) for m in ranked)
     return Leaderboard(rows=rows, aggregation="mean", any_beat_baseline=beat)
+
+
+def score_probabilistic(
+    quantiles: pl.DataFrame, *, columns: list[str], grid: np.ndarray
+) -> dict[tuple[int, str], float | None]:
+    """Scaled CRPS per (fold, series) from a model's quantile frame (FR-208).
+
+    `utilsforecast` has no plain `crps`; what exists is `scaled_crps`, a quantile-grid
+    approximation normalised by the sum of actuals. Two consequences the leaderboard has to
+    carry honestly:
+
+    * the value depends on the grid, so `Manifest.crps_quantiles` records it — a run at
+      `levels=[80, 95]` is not CRPS-comparable with one at `[50, 80, 95]`;
+    * the normaliser is **zero** on an all-zero evaluation window, routine on intermittent
+      panels, so FR-214's `None` policy applies here exactly as it does to MASE.
+    """
+    from utilsforecast.losses import scaled_crps
+
+    if quantiles.is_empty():
+        return {}
+
+    out: dict[tuple[int, str], float | None] = {}
+    for (fold_index,), fold_frame in quantiles.group_by(["fold_index"]):
+        frame = fold_frame.select([ID, DS, Y, *columns]).to_pandas()
+        frame["cutoff"] = 0  # single window per call; grouping is done by us, not the loss
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            try:
+                table = scaled_crps(frame, models={"m": columns}, quantiles=grid)
+            except (ValueError, ZeroDivisionError, KeyError):  # pragma: no cover - defensive
+                continue
+        for row in table.to_dict("records"):
+            out[(int(fold_index), str(row[ID]))] = _clean(row["m"])
+    return out

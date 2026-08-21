@@ -126,6 +126,10 @@ class ConformalBands(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    #: Which model these bands belong to. Without it a list of bands is ambiguous -- the
+    #: half-widths are keyed by series, so two models' bands at the same level are
+    #: indistinguishable, and a lookup silently returns whichever came first.
+    model: str
     level: int = Field(ge=1, le=99)
     half_width: dict[str, float] = Field(default_factory=dict)
     pooled_fallback: set[str] = Field(default_factory=set)

@@ -637,7 +637,7 @@ provide:
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/v1/data` | Upload panel (Arrow IPC or Parquet), **including any future-known exog rows** (FR-111: `y` null, `ds` beyond last observation). Returns `data_id` + `DataProfile` + validation report. Not subject to NFR-03 — see §10 |
+| `POST` | `/v1/data` | Upload panel (**Arrow IPC or Parquet**, detected by magic bytes rather than by the declared content type — Excel's three webviews are not uniformly careful about headers), **including any future-known exog rows** (FR-111: `y` null, `ds` beyond last observation). Returns `data_id` + `DataProfile` + validation report. Not subject to NFR-03 — see §10. Arrow IPC exists for the add-in: the pane holds cell values as JavaScript arrays, and Arrow is the one columnar format it can produce in the browser without a WASM dependency |
 | `POST` | `/v1/parse` | `{data_id, text}` → `ForecastRequest` + `assumptions` + `clarifying_question?`. Budget is NFR-04 (3 s), not NFR-03 |
 | `POST` | `/v1/confirm` | `{data_id, request}` → `{confirmation_token}`. Minted only from an explicit user action in S3. Bound to `(data_id, request_hash)`, single-use, 30-minute expiry |
 | `POST` | `/v1/jobs` | `{data_id, request, confirmation_token}` → `{job_id}`. Validates, checks quota/licence, **rejects 4xx without a valid token** (AC-503), enqueues |

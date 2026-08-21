@@ -67,6 +67,8 @@ jobs:
         run: npx tsc --noEmit
       - name: tests
         run: npx vitest run
+      - name: build
+        run: npx vite build
       - name: manifest is well-formed
         run: python3 -c "import xml.etree.ElementTree as ET; ET.parse('manifest.xml')"
 

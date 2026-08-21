@@ -131,6 +131,7 @@ module = [
     "sklearn.*",
     "statsmodels.*",
     "threadpoolctl.*",
+    "pyarrow.*",
 ]
 ignore_missing_imports = true
 

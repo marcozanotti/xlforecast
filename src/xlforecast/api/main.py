@@ -82,6 +82,58 @@ def _fail(exc: XLForecastError, status: int) -> HTTPException:
     )
 
 
+ARROW_CONTENT_TYPES = (
+    "application/vnd.apache.arrow.stream",
+    "application/vnd.apache.arrow.file",
+)
+
+
+def _decode_panel(body: bytes, content_type: str) -> pl.DataFrame:
+    """Read an uploaded panel as Parquet or Arrow IPC (TS §6).
+
+    Arrow IPC exists for the add-in's sake: the task pane holds cell values as JavaScript
+    arrays, and Arrow is the one columnar format it can produce in the browser without a WASM
+    dependency. Parquet remains the CLI and file-input path.
+
+    Detection is by magic bytes, with the content type as a tiebreak rather than a contract --
+    Excel's three webviews are not uniformly careful about what they send, and rejecting a
+    valid panel over a header would be a poor way to find that out.
+
+    Note the two Arrow framings are different on the wire: the *file* format begins `ARROW1`,
+    while the *stream* format -- which is what a browser produces -- begins with a continuation
+    marker, `\xff\xff\xff\xff`. Checking only for `ARROW1` would have missed every upload the
+    add-in actually sends.
+    """
+    if body[:4] == b"PAR1":
+        return pl.read_parquet(io.BytesIO(body))
+    if body[:6] == b"ARROW1":
+        return _read_arrow(body, streaming=False)
+    if body[:4] == b"\xff\xff\xff\xff":
+        return _read_arrow(body, streaming=True)
+
+    # No recognisable magic: fall back on the declared type, then simply try each in turn.
+    if "parquet" in content_type:
+        return pl.read_parquet(io.BytesIO(body))
+    if any(t in content_type for t in ARROW_CONTENT_TYPES):
+        return _read_arrow(body, streaming=True)
+    try:
+        return pl.read_parquet(io.BytesIO(body))
+    except Exception:  # noqa: BLE001 - one user-facing message either way
+        return _read_arrow(body, streaming=True)
+
+
+def _read_arrow(body: bytes, *, streaming: bool) -> pl.DataFrame:
+    import pyarrow as pa
+
+    opener = pa.ipc.open_stream if streaming else pa.ipc.open_file
+    with opener(pa.BufferReader(body)) as reader:
+        table = reader.read_all()
+    frame = pl.from_arrow(table)
+    if isinstance(frame, pl.Series):  # pragma: no cover - a table never yields a Series
+        frame = frame.to_frame()
+    return frame
+
+
 @app.get("/v1/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "version": __version__}
@@ -127,13 +179,13 @@ async def upload(
         )
 
     try:
-        panel = pl.read_parquet(io.BytesIO(body))
+        panel = _decode_panel(body, request.headers.get("content-type", ""))
     except Exception as exc:  # noqa: BLE001 - any parse failure is one user-facing message
         raise HTTPException(
             status_code=400,
             detail={
-                "message": "the upload could not be read as Parquet.",
-                "fix": "Export the panel as Parquet and try again.",
+                "message": "the upload could not be read as Parquet or Arrow IPC.",
+                "fix": "Send the panel as Parquet, or as an Arrow IPC stream.",
                 "detail": str(exc)[:200],
             },
         ) from None

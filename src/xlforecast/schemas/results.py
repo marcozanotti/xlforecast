@@ -12,6 +12,7 @@ from xlforecast.schemas.profile import DataProfile
 from xlforecast.schemas.request import DataMapping, ResolvedRequest
 
 __all__ = [
+    "CalibrationRow",
     "ConformalBands",
     "FoldScore",
     "ForecastFrame",
@@ -71,8 +72,10 @@ class LeaderboardRow(BaseModel):
     smape: float | None = None
     scaled_crps: float | None = None  #: named for what utilsforecast actually computes
 
-    coverage: dict[int, float] = Field(default_factory=dict)  #: out-of-calibration (FR-303)
-    coverage_intermittent: dict[int, float] = Field(default_factory=dict)  #: FR-307
+    #: Out-of-calibration coverage per level (FR-303). A single panel figure: measurement
+    #: showed splitting it by intermittency class carries no information (0.807 vs 0.809).
+    #: The tails, which differ sharply between classes, live in `CalibrationRow`.
+    coverage: dict[int, float] = Field(default_factory=dict)
 
     n_folds: int = Field(ge=0)
     n_series_scored: int = Field(ge=0)  #: FR-209
@@ -131,6 +134,37 @@ class ConformalBands(BaseModel):
     #: a band calibrated from every fold and then scored on one of them reports nominal
     #: coverage by construction, which is the defect ADR-006 was amended to prevent.
     calibrated_from_folds: list[int] = Field(default_factory=list)
+
+
+class CalibrationRow(BaseModel):
+    """One model at one level, for XLF_Diagnostics block 3 (FR-303, FR-307a/b).
+
+    Separate from `LeaderboardRow` because these are diagnostics rather than ranking inputs,
+    and because `empirical_in_calibration` must never reach a user: it is ~nominal by
+    construction and exists only as AC-301's control.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    model: str
+    level: int = Field(ge=1, le=99)
+    #: Which series this row summarises. FR-303's split is by intermittency class, applied
+    #: to the tails rather than to coverage.
+    scope: Literal["all", "smooth", "intermittent"] = "all"
+    nominal: float = Field(ge=0.0, le=1.0)
+    empirical: float | None = None
+    #: AC-301's control. Conservative by construction -- it cannot report under-coverage,
+    #: which is exactly why it is evidence about the honest figure and not a figure itself.
+    empirical_in_calibration: float | None = None
+    #: FR-307b. Share of observations below `lo` and above `hi`. A balanced interval splits
+    #: its miscoverage between them; a symmetric band on zero-inflated counts does not, and
+    #: that is inherent to putting a continuous interval around a point mass at zero rather
+    #: than a defect to be corrected.
+    lower_tail: float | None = None
+    upper_tail: float | None = None
+    mean_width: float | None = None
+    n_pooled_fallback: int = 0
+    mean_clip_rate: float | None = None
 
 
 class ModelTiming(BaseModel):
@@ -238,6 +272,7 @@ class RunResult(BaseModel):
     forecast: ForecastFrame
     fold_scores: list[FoldScore] = Field(default_factory=list)
     bands: list[ConformalBands] = Field(default_factory=list)
+    calibration: list[CalibrationRow] = Field(default_factory=list)
     timing: RunTiming
     artifacts: ArtifactPack
     manifest: Manifest

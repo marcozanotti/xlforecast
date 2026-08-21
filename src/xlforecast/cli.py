@@ -31,7 +31,7 @@ def _fmt(value: float | None) -> str:
 def _leaderboard_frame(result: RunResult) -> pl.DataFrame:
     rows = [r.model_dump() for r in result.leaderboard.rows]
     frame = pl.DataFrame(rows, infer_schema_length=None) if rows else pl.DataFrame()
-    return frame.drop("coverage", "coverage_intermittent", strict=False)
+    return frame.drop("coverage", strict=False)
 
 
 def _write_outputs(result: RunResult, out: Path) -> dict[str, Path]:

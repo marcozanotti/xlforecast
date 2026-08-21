@@ -332,8 +332,7 @@ class LeaderboardRow(BaseModel):
     rmse: float | None
     smape: float | None
     scaled_crps: float | None  # named for what utilsforecast computes
-    coverage: dict[int, float]  # out-of-calibration (FR-303)
-    coverage_intermittent: dict[int, float]  # FR-307 — clipped bands are not comparable
+    coverage: dict[int, float]  # out-of-calibration, single figure (FR-303)
     n_folds: int
     n_series_scored: int  # FR-209
     n_series_common: int  # FR-215

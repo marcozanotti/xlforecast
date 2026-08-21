@@ -33,6 +33,7 @@ from xlforecast.schemas.request import (
     ResolvedRequest,
 )
 from xlforecast.schemas.results import (
+    CalibrationRow,
     ConformalBands,
     FoldScore,
     ForecastFrame,
@@ -53,6 +54,7 @@ __all__ = [
     "ArtifactPack",
     "Attribution",
     "CalendarContext",
+    "CalibrationRow",
     "ConformalBands",
     "DataMapping",
     "DataProfile",

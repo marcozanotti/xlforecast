@@ -23,6 +23,7 @@ from xlforecast.schemas import (
     ArtifactPack,
     Attribution,
     CalendarContext,
+    CalibrationRow,
     ConformalBands,
     DataMapping,
     DataProfile,
@@ -58,6 +59,7 @@ ALL_CONTRACTS: list[type[BaseModel]] = [
     Leaderboard,
     ForecastRow,
     ForecastFrame,
+    CalibrationRow,
     ConformalBands,
     ModelTiming,
     RunTiming,
@@ -238,3 +240,30 @@ def test_request_normalisation_is_idempotent_across_round_trips():
     twice = ForecastRequest.model_validate(json.loads(once.model_dump_json()))
     assert once == twice
     assert twice.freq == "W-SUN"
+
+
+def test_calibration_row_round_trips():
+    """FR-303/307a/b -- the diagnostics record that replaced the coverage-by-class split."""
+    assert_round_trips(
+        CalibrationRow(
+            model="SeasonalNaive",
+            level=80,
+            scope="intermittent",
+            nominal=0.80,
+            empirical=0.807,
+            empirical_in_calibration=0.844,
+            lower_tail=0.0,
+            upper_tail=0.193,
+            mean_width=5.19,
+            n_pooled_fallback=2,
+            mean_clip_rate=0.958,
+        )
+    )
+
+
+def test_calibration_row_tolerates_absent_measurements():
+    """A model whose bands all hit the terminal fallback has no figures to report, and
+    `None` says so where 0.0 would read as catastrophic miscalibration."""
+    row = CalibrationRow(model="X", level=95, nominal=0.95)
+    assert row.empirical is None
+    assert_round_trips(row)

@@ -226,3 +226,42 @@ harness earlier rather than treating G3 as a formality.
 AutoETS/SeasonalNaive should win". With FR-201c that now holds. Without it, it would have failed —
 another instance of a specified test that would have failed against a correct engine, alongside
 AC-406.
+
+---
+
+## 8. Phase 2 — conformal, and an overreach of mine
+
+**Owner decisions (2026-08-21).**
+
+| # | Question | Decision |
+|---|---|---|
+| D-5 | Asymmetric bands balance the tails on smooth series but under-cover intermittent ones at 0.693 | **Symmetric + clipped everywhere.** Safer on persona P1's data, and one procedure keeps probabilistic scores commensurable per ADR-006 |
+| D-6 | FR-303's coverage-by-intermittency-class split shows nothing (0.807 vs 0.809) | **Split the tails instead**, which differ sharply. Coverage becomes a single panel figure |
+
+**AC-301's control behaves differently than the spec review predicted — and the difference
+strengthens the argument.** I assumed the in-calibration figure would sit *closer* to nominal.
+Measured, it sits systematically *above*: 0.844 against an honest 0.809 at level 80, and 1.000
+against 0.953 at level 95. A conformal quantile with the finite-sample correction is conservative
+on its own calibration sample. So the control cannot come out *low* — meaning it would report a
+comfortable number for an interval that was far too narrow, which is a sharper indictment than
+"it is roughly nominal by construction". The test asserts `control ≥ nominal` and
+`control > honest`.
+
+**FR-307 was wrong, and I wrote it.** The claim that clipping was needed because unclipped
+coverage "approaches 100%" is false: clipping cannot change coverage on non-negative data, because
+no observation lies below zero to be excluded. Measured 80.7% either way. AC-307 required removing
+the clip to push coverage above 0.97 — an acceptance criterion asserting an impossible effect,
+which fails permanently and protects nothing. Clipping earns its place on **sharpness** (−21.6%
+width) and interpretability instead.
+
+**Then FR-307b overreached in the other direction.** Having found the one-sided miscoverage, I
+wrote that it means a model "is not well calibrated". Building the alternative disproved that: the
+asymmetric band that balances the tails is *worse* on the data in question. The imbalance is a
+property of wrapping a continuous interval around a point mass at zero, not a fault in the band.
+FR-307c now says so.
+
+The pattern across FR-201c, the `infer_freq` bug, and this one: **each was invisible to inspection
+and surfaced only by running the thing.** The two in this section are worse than that — they were
+defects in specification text I had written confidently a few sessions earlier, and the second was
+introduced *while fixing the first*. Measuring the alternative before asserting a conclusion is the
+cheap step that catches this, and it is the step I skipped.

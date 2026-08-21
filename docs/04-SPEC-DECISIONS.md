@@ -219,7 +219,7 @@ weekly seasonal panel: MASE **1.123 → 0.765**.
 
 Worth noting for Phase 3: this was invisible to unit tests and only surfaced when a full
 leaderboard was run on seasonal data and AutoETS placed implausibly low. Benchmark validation is
-supposed to catch exactly this class of defect, which is an argument for running the M5/VN1
+supposed to catch exactly this class of defect, which is an argument for running the M3
 harness earlier rather than treating G3 as a formality.
 
 **Related, and still open:** the Build Plan's statistical-correctness test says "Pure seasonal →

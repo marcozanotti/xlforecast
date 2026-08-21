@@ -1,0 +1,108 @@
+{
+  "source": {
+    "name": "Monash Time Series Forecasting Archive",
+    "citation": "Godahewa, Bergmeir, Webb, Hyndman, Montero-Manso (2021), Monash Time Series Forecasting Archive, NeurIPS Datasets and Benchmarks Track",
+    "paper": "https://arxiv.org/abs/2105.06643",
+    "results_site": "https://forecastingdata.org/",
+    "tables": "Mean MASE = Table 6; Mean sMAPE = Table 8",
+    "retrieved": "2026-08-21"
+  },
+  "protocol": {
+    "split": "The last `horizon` observations of each series are the test set; everything before is the training series. Single forecast origin, NOT cross-validation.",
+    "mase": "MASE = [mean_{k=M+1..M+h} |F_k - Y_k|] / [ (1/(M-S)) * sum_{k=S+1..M} |Y_k - Y_{k-S}| ]. M is the number of TRAINING points, S the dataset seasonality, h the horizon. The denominator is the in-sample seasonal-naive MAE over the training series only.",
+    "aggregation": "Mean across series, unweighted.",
+    "seasonality": {
+      "yearly": 1,
+      "quarterly": 4,
+      "monthly": 12,
+      "other": 1
+    }
+  },
+  "datasets": {
+    "m3_yearly": {
+      "zenodo": "https://zenodo.org/records/4656222",
+      "n_series": 645,
+      "horizon": 6,
+      "seasonality": 1,
+      "mean_mase": {
+        "SES": 3.167,
+        "Theta": 2.774,
+        "ETS": 2.86,
+        "ARIMA": 3.417,
+        "PR": 3.223
+      },
+      "mean_smape": {
+        "SES": 17.76,
+        "Theta": 16.76,
+        "ETS": 17.0,
+        "ARIMA": 18.84,
+        "PR": 17.13
+      }
+    },
+    "m3_quarterly": {
+      "zenodo": "https://zenodo.org/records/4656262",
+      "n_series": 756,
+      "horizon": 8,
+      "seasonality": 4,
+      "mean_mase": {
+        "SES": 1.417,
+        "Theta": 1.117,
+        "ETS": 1.17,
+        "ARIMA": 1.24,
+        "PR": 1.248
+      },
+      "mean_smape": {
+        "SES": 10.9,
+        "Theta": 9.2,
+        "ETS": 9.68,
+        "ARIMA": 10.24,
+        "PR": 9.77
+      }
+    },
+    "m3_monthly": {
+      "zenodo": "https://zenodo.org/records/4656298",
+      "n_series": 1428,
+      "horizon": 18,
+      "seasonality": 12,
+      "mean_mase": {
+        "SES": 1.091,
+        "Theta": 0.864,
+        "ETS": 0.865,
+        "ARIMA": 0.873,
+        "PR": 1.01
+      },
+      "mean_smape": {
+        "SES": 16.22,
+        "Theta": 13.86,
+        "ETS": 14.14,
+        "ARIMA": 14.24,
+        "PR": 15.17
+      }
+    },
+    "m3_other": {
+      "zenodo": "https://zenodo.org/records/4656335",
+      "n_series": 174,
+      "horizon": 8,
+      "seasonality": 1,
+      "mean_mase": null,
+      "mean_smape": null,
+      "note": "The Monash paper reports no baselines for M3 Other -- the string 'M3 Other' does not appear in it. These series are also undated: the .tsf declares only `series_name`, with no start_timestamp and no @frequency. Run it for regression tracking, but it cannot be part of the G3 comparison because there is nothing published to compare against."
+    }
+  },
+  "model_map": {
+    "comment": "Which of our models each published baseline is compared against. Approximate rather than identical implementations, which is why the tolerance below is generous.",
+    "ETS": "AutoETS",
+    "ARIMA": "AutoARIMA",
+    "Theta": "DynamicOptimizedTheta"
+  },
+  "gate_g3": {
+    "tolerance_pct": 15.0,
+    "rule": "ASYMMETRIC. For each mapped model on m3_yearly, m3_quarterly and m3_monthly: FAIL if our mean MASE is worse than the published value by more than tolerance_pct. PASS but FLAG if it is better by more than tolerance_pct. PASS silently within the band.",
+    "why_asymmetric": "G3 exists to stop the project if the engine is not competitive, so only being materially WORSE is a gate failure. A first draft used abs(delta) and failed AutoARIMA on M3 Yearly for coming in 15.6% BETTER than the published baseline, which is not a defect the gate should be looking for. But a large improvement is not automatically good news either -- it is the signature of a leak -- so it is flagged for a look rather than passed in silence.",
+    "why_generous": "Monash's ETS/ARIMA/Theta come from R's forecast package; ours come from statsforecast, which reimplements them. Theta especially differs: Monash uses forecast::thetaf (standard Theta) while ours is statsforecast's DynamicOptimizedTheta, a different variant. A tight tolerance would test library agreement rather than engine correctness. A 15% band still fails loudly on a real defect -- the FR-201c AutoETS bug was a 46% MASE regression.",
+    "excluded": [
+      "m3_other"
+    ],
+    "note_on_published_arima": "The archive's ARIMA is worse than its SES on M3 Yearly (3.417 against 3.167). auto.arima is known to struggle on short yearly series, so beating that particular baseline comfortably is expected rather than suspicious."
+  }
+}

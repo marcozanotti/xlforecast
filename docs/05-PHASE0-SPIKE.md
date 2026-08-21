@@ -85,7 +85,7 @@ total. FR-216a's "nearly free" claim for `GlobalXGB` is confirmed at **1.0 s CPU
 
 ## 5. Caveats
 
-- Synthetic panel, one machine, ideal linear scaling assumed across series. Real M5/VN1 panels have
+- Synthetic panel, one machine, ideal linear scaling assumed across series. Real M3 panels have
   ragged ends, intermittency and longer histories; Phase 3 re-measures against NFR-01 for real.
 - The 50% overhead allowance is an assumption, not a measurement — FR-217a's accounting exists
   precisely so that it stops being one after Phase 1.

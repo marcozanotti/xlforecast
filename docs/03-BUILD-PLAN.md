@@ -99,18 +99,29 @@ coverage (AC-307). Ensemble scores are computed on the same folds as their membe
 ## Phase 3 — Benchmark validation
 **Effort:** ~1.5 weeks · **This is the credibility gate**
 
-- `benchmarks/` harness for M5 and VN1 subsets.
-- Compare against known-good results from your own prior work.
+- `benchmarks/` harness for the M3 competition data (yearly, quarterly, monthly, other), read
+  from the Monash archive `.tsf` files on Zenodo.
+- Compare against the **published** Monash baselines, committed with explicit tolerances before
+  the phase opens.
 - Profile and optimise the obvious hot paths, ranked by measured per-model `train + predict` CPU
   seconds (FR-217) rather than by intuition about which models look expensive.
 - Write the public methodology page draft — if you cannot explain the leaderboard in writing,
   the design is wrong.
 
-**Gate G3:** Results on M5/VN1 subsets fall within a **committed tolerance band of a committed
-baseline file** — named metrics and explicit tolerances, checked into `benchmarks/baselines/` before
-Phase 3 opens. "Consistent with your published work" is not a gate: it has no metric, no tolerance
-and no artifact, so it cannot fail — and this is the one gate explicitly empowered to kill the
-project. Runtime meets NFR-01 at the FR-216 default set.
+**Gate G3:** M3 results fall within a **committed tolerance band of a committed baseline file** —
+`benchmarks/baselines/monash_m3.json`, checked in before the phase opens, carrying the Monash
+archive's published Mean MASE and sMAPE per model per dataset, the exact metric definition, and an
+explicit tolerance.
+
+The tolerance is **asymmetric**: being materially *worse* than a published baseline fails the gate;
+being materially *better* is flagged for a leakage check rather than failed. A first draft used
+`abs(delta)` and failed `AutoARIMA` on M3 Yearly for coming in 15.6% better than the archive, which
+is not a defect the gate should be hunting.
+
+Baselines come from someone else — Godahewa et al. (2021), NeurIPS Datasets and Benchmarks — which
+is strictly better than the original "consistent with your published work". That had no metric, no
+tolerance and no artifact, so it could not fail, and this is the one gate explicitly empowered to
+kill the project. Runtime meets NFR-01 at the FR-216 default set.
 **If the engine is not competitive here, stop and fix it — do not proceed to the add-in.**
 
 ---

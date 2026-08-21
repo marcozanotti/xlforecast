@@ -59,8 +59,8 @@ protects that. If a feature would make the leaderboard misleading, it does not s
 These are settled. Do not relitigate them during implementation; raise an issue if evidence changes.
 
 **ADR-001 — The engine is headless first, Excel second.**
-The full competition runs as a Python package with a CLI, validated on M5/VN1 before any add-in
-code exists. If the add-in turns out to be the wrong channel, the engine survives.
+The full competition runs as a Python package with a CLI, validated on the M3 competition data
+before any add-in code exists. If the add-in turns out to be the wrong channel, the engine survives.
 
 **ADR-002 — Excel integration via xlwings Server (Office.js), provisional pending a Phase 5 spike.**
 Lets us write the add-in's Office.js orchestration in Python instead of JavaScript. Requires an
@@ -203,14 +203,20 @@ Maintain this table in the repo. Any model added to the registry must have a row
 
 ## 8. Success criteria for v1
 
-1. On M5 and VN1 subsets, the engine reproduces published-quality results and beats seasonal naive
-   on the panel-level aggregate metric.
+1. On the M3 competition data, the engine is competitive with the published baselines in the
+   Monash Time Series Forecasting Archive, and beats seasonal naive on the panel-level aggregate.
+
+   *Changed from M5/VN1 in Phase 3.* M5 is 42,840 hierarchical Walmart series and VN1 is similarly
+   large; neither resembles what this product's users own. M3 is 3,003 series across four
+   frequencies with short histories — 645 yearly series of 20–47 observations, 1,428 monthly of
+   66–144 — which is much closer to P1's 50–2,000 SKUs and P2's 5–50 revenue lines. It also has
+   **externally published baselines**, which makes the gate falsifiable by someone who is not us.
 2. Two identical job specs on identical data, **run under the same recorded thread configuration**,
    produce byte-identical leaderboards. Thread counts and BLAS vendor are part of the manifest
    because float reductions reorder under them; see NFR-02.
 3. A 200-series × 156-week competition with the 13-model default set (FR-216) and 3 CV windows
    completes in under 10 minutes on 8 vCPUs. **Projected at 2.9 min by the Phase 0 spike (docs/05)**;
-   re-measured on real M5/VN1 panels at Phase 3, which is the figure that counts.
+   re-measured on real panels at Phase 3, which is the figure that counts.
 4. Empirical coverage of the 80% and 95% conformal intervals is within ±5 percentage points of
    nominal, measured **out of calibration** (cross-conformal, ADR-006), reported separately for
    intermittent and smooth series.

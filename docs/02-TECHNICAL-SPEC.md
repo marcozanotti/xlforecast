@@ -137,7 +137,10 @@ xlforecast/
 │   ├── integration/
 │   ├── golden/                 # reproducibility fixtures
 │   └── llm/                    # guardrail regression suite
-└── benchmarks/                 # M5 / VN1 validation harness
+└── benchmarks/                 # M3 validation harness (gate G3)
+    ├── tsf.py                  # Monash .tsf reader
+    ├── m3.py                   # single-origin runner + baseline comparison
+    └── baselines/              # committed published results + tolerances
 ```
 
 ---
@@ -918,10 +921,16 @@ fails CI. Plus a manifest-replay test: re-run from a stored manifest, assert ide
   window, both yield `None` rather than `NaN`/`inf`, and neither poisons the panel aggregate
   (FR-214).
 
-**Benchmark.** `benchmarks/` runs M5 and VN1 subsets and records leaderboards **and per-model
-`RunTiming`** over time, so both accuracy and performance regressions are visible — a change that
-quietly triples `AutoETS` train time should be as loud as one that moves its MASE. Not in CI (too
-slow) — nightly or on demand.
+**Benchmark.** `benchmarks/` runs the M3 competition data and records leaderboards **and
+per-model `RunTiming`** over time, so both accuracy and performance regressions are visible — a
+change that quietly triples `AutoETS` train time should be as loud as one that moves its MASE.
+Not in CI (too slow) — nightly or on demand.
+
+The M3 harness runs in **comparability mode**: a single forecast origin with the last `horizon`
+observations held out, matching the Monash archive's protocol. It therefore bypasses
+`engine/run.py` and drives the adapters directly, because comparing our 3-fold cross-validated
+average against their single holdout and calling the difference a result would be meaningless.
+The fold machinery, conformal layer and ensembling are covered by G1 and G2 instead.
 
 **LLM.** 100-case explanation regression suite measured **pre-guardrail**: first-pass rejection rate
 < 5%, strip path fires zero times, post-guardrail unmatched numerals zero (AC-605). Includes a

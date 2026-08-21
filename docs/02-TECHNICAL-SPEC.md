@@ -425,7 +425,7 @@ class Manifest(BaseModel):
     cutoffs: list[str]  # panel-wide calendar dates, one per fold
     excluded_series: dict[str, ExclusionReason]
     autoarima_mode: Literal["seasonal", "fourier"]  # FR-201a changes the fitted model
-    ets_mode: Literal["seasonal", "mstl"]                 # FR-201c likewise
+    ets_mode: Literal["seasonal", "mstl"]  # FR-201c likewise
     crps_quantiles: list[float]  # FR-208 — CRPS is grid-dependent
     ensemble_params: dict[str, float | int | str]  # FR-403, was unrecorded
     prompt_versions: dict[str, str]  # §9.5 required this and it was absent

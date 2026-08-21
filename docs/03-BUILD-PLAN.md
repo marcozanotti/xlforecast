@@ -218,7 +218,7 @@ exactly the migration this note exists to avoid.
 | AutoARIMA at `m=52` blows NFR-01 (800 fits per run) | High | High | FR-201a Fourier mode; measure in the Phase 0 spike before freezing FR-216 |
 | Ragged-panel leakage into global models via per-series cutoffs | High | High | Own fold loop, panel-wide cutoffs (FR-206/206a); AC-205 tests the test index, not the cutoffs |
 | Circular conformal calibration reports tautological coverage | High | High | Cross-conformal (FR-302) plus the in-calibration control in AC-301 |
-| Image size vs Phase 4 cold start (`fugue`, `optuna`, LightGBM, XGBoost, pyarrow, polars) | Medium | Medium | Measure at Phase 0; multi-stage build; trim extras |
+| Image size vs Phase 4 cold start | **Measured at Phase 0: 2.92 GB → 2.10 GB** | Medium | `xgboost` pulls `nvidia-nccl-cu12` (454 MB of CUDA, for multi-GPU training) unconditionally on Linux; excluded via `[tool.uv] override-dependencies`, CPU XGBoost verified unaffected. Remaining candidate is `llvmlite`+`numba` (208 MB, shap-only) — a worker image without the `explain` extra would shed them. Revisit at Phase 4 where cold start is measurable |
 | Office.js behaviour differs across Windows/Mac/web | High | Medium | Test all three from the first add-in commit, not at the end |
 | Marketplace certification rejection | Medium | Medium | Read the certification policies before Phase 7; batch submissions |
 | Enterprise IT blocks the add-in | High | High | Self-hosted mode + data minimisation, both designed in from the start |

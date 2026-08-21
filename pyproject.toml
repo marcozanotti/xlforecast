@@ -60,6 +60,19 @@ dev = [
     "pre-commit>=4.0",
 ]
 
+[tool.uv]
+# xgboost requires nvidia-nccl-cu12 unconditionally on Linux -- 454 MB of CUDA libraries for
+# multi-GPU distributed training. This project is CPU-only by design (neural forecasting is a
+# non-goal; the deploy target is scale-to-zero Container Apps / Cloud Run), and NCCL is loaded
+# lazily only on GPU paths, so CPU XGBoost is unaffected.
+#
+# Measured: 25% of the image's site-packages. NFR-06 wants workers to scale to zero, and every
+# gigabyte is cold-start latency on a spiky workload.
+#
+# Revisit if GPU inference ever becomes a target -- at which point this line must be removed,
+# not worked around.
+override-dependencies = ["nvidia-nccl-cu12 ; sys_platform == 'never'"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

@@ -158,3 +158,38 @@ the retired risk-register entry in §1: **asserting the absence of a package rat
 absence of a declared dependency**. Presence depends on which extras are installed and answers a
 different question each time; only metadata answers the question ADR-003 actually asks. All three
 now assert against metadata.
+
+---
+
+## 8. Image size — the last open Phase 0 risk, now measured
+
+Built locally on Docker 29.1.3 (buildx installed per-user at `~/.docker/cli-plugins/`, no root
+required). The G0 gate baked into the Dockerfile passed in the build, and the running image was
+verified: user `xlf` uid 10001, glibc 2.36, `OMP/MKL/OPENBLAS_NUM_THREADS=1`, `libgomp` present.
+
+**2.92 GB → 2.10 GB (−28%).** Site-packages breakdown of the original:
+
+| Package | MB | |
+|---|---:|---|
+| **nvidia** | **454** | **removed** — see below |
+| xgboost | 228 | |
+| polars runtime | 206 | |
+| llvmlite | 173 | via shap (§6) |
+| pyarrow | 156 | |
+| scipy | 113 | |
+| pandas | 79 | |
+| statsmodels / sklearn / numpy | 151 | |
+
+`xgboost` requires `nvidia-nccl-cu12` **unconditionally on Linux** — 454 MB of CUDA libraries for
+multi-GPU distributed training, 25% of site-packages. This project is CPU-only by design (neural
+forecasting is a non-goal; the deploy target is scale-to-zero), and NCCL loads lazily on GPU paths
+only. Excluded via a `[tool.uv] override-dependencies` entry with an impossible marker; verified
+that CPU XGBoost still trains and predicts, and that all 127 tests pass.
+
+This matters for NFR-06: workers scale to zero, so every gigabyte is cold-start latency on a spiky
+workload. 2.1 GB is still large and the remaining candidates are known — `llvmlite`+`numba`
+(173+35 MB) exist only for shap, so a worker image that omits the `explain` extra would shed them,
+at the cost of needing a second image. Deferred to Phase 4, where cold start is actually measurable
+rather than hypothetical.
+
+**Phase 0 risk register: all items now closed or measured.**
